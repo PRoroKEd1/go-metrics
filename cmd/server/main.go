@@ -5,49 +5,36 @@ import (
 	"log"
 	"net/http"
 	"strconv"
-	"strings"
+
+	"html/template"
+
+	"github.com/go-chi/chi/v5"
 )
 
 func main() {
-	mux := http.NewServeMux()
+	r := chi.NewRouter()
 	addr := ":8080"
 	storage := NewMemStorage()
-	mux.HandleFunc("/update/", storage.updateHandler)
+	r.Post("/update/{type}/{name}/{value}", storage.updateHandler)
+	r.Get("/value/{type}/{name}", storage.getMetricHandler)
+
+	r.Get("/", storage.getAllMetricsHandler)
 
 	log.Printf("Сервер запущен и слушает порт %s", addr)
-	if err := http.ListenAndServe(addr, mux); err != nil {
+	if err := http.ListenAndServe(addr, r); err != nil {
 		log.Fatalf("Ошибка при запуске сервера: %v", err)
-
 	}
-
 }
 
 func (m *MemStorage) updateHandler(w http.ResponseWriter, r *http.Request) {
-
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	if r.Header.Get("Content-Type") != "text/plain" {
 		http.Error(w, "Content-Type must be text/plain", http.StatusBadRequest)
 		return
 	}
 
-	path := r.URL.Path
-	if len(path) == 0 || path[0] == '/' {
-		path = path[1:]
-	}
-	parts := strings.Split(path, "/")
-
-	if len(parts) != 4 || parts[0] != "update" {
-		http.Error(w, "Invalid path format", http.StatusNotFound)
-		return
-	}
-
-	metricType := parts[1]
-	metricName := parts[2]
-	metricValueStr := parts[3]
+	metricType := chi.URLParam(r, "type")
+	metricName := chi.URLParam(r, "name")
+	metricValueStr := chi.URLParam(r, "value")
 
 	switch metricType {
 	case "gauge":
@@ -56,7 +43,6 @@ func (m *MemStorage) updateHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Invalid gauge value format", http.StatusBadRequest)
 			return
 		}
-
 		m.UpdateGauge(metricName, value)
 
 	case "counter":
@@ -89,10 +75,102 @@ func NewMemStorage() MemStorage {
 	}
 }
 
+func (m *MemStorage) GetGauge(name string) (float64, bool) {
+	val, ok := m.gauge[name]
+	return val, ok
+}
+
+func (m *MemStorage) GetCounter(name string) (int64, bool) {
+	val, ok := m.counter[name]
+	return val, ok
+}
+
+func (m *MemStorage) GetAllGauges() map[string]float64 {
+	return m.gauge
+}
+
+func (m *MemStorage) GetAllCounters() map[string]int64 {
+	return m.counter
+}
+
 func (m *MemStorage) UpdateGauge(name string, value float64) {
 	m.gauge[name] = value
 }
 
 func (m *MemStorage) UpdateCounter(name string, value int64) {
 	m.counter[name] += value
+}
+
+func (m *MemStorage) getMetricHandler(w http.ResponseWriter, r *http.Request) {
+	metricType := chi.URLParam(r, "type")
+	metricName := chi.URLParam(r, "name")
+
+	switch metricType {
+	case "gauge":
+		val, ok := m.GetGauge(metricName)
+		if !ok {
+			http.Error(w, "Metric not found", http.StatusNotFound)
+			return
+		}
+		fmt.Fprintf(w, "%v", val)
+
+	case "counter":
+		val, ok := m.GetCounter(metricName)
+		if !ok {
+			http.Error(w, "Metric not found", http.StatusNotFound)
+			return
+		}
+		fmt.Fprintf(w, "%v", val)
+
+	default:
+		http.Error(w, "Unknown metric type", http.StatusNotFound)
+		return
+	}
+}
+
+func (m *MemStorage) getAllMetricsHandler(w http.ResponseWriter, r *http.Request) {
+	gauges := m.GetAllGauges()
+	counters := m.GetAllCounters()
+
+	data := struct {
+		Gauges   map[string]float64
+		Counters map[string]int64
+	}{
+		Gauges:   gauges,
+		Counters: counters,
+	}
+
+	tmplText := `
+<!DOCTYPE html>
+<html>
+<head>
+	<title>Метрики</title>
+</head>
+<body>
+	<h1>Gauge метрики</h1>
+	<ul>
+		{{range $name, $value := .Gauges}}
+			<li>{{$name}}: {{$value}}</li>
+		{{end}}
+	</ul>
+
+	<h1>Counter метрики</h1>
+	<ul>
+		{{range $name, $value := .Counters}}
+			<li>{{$name}}: {{$value}}</li>
+		{{end}}
+	</ul>
+</body>
+</html>
+`
+
+	tmpl, err := template.New("metrics").Parse(tmplText)
+	if err != nil {
+		http.Error(w, "Error parsing template", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	tmpl.Execute(w, data)
+
 }
