@@ -27,11 +27,6 @@ func main() {
 }
 
 func (m *MemStorage) updateHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Header.Get("Content-Type") != "text/plain" {
-		http.Error(w, "Content-Type must be text/plain", http.StatusBadRequest)
-		return
-	}
-
 	metricType := chi.URLParam(r, "type")
 	metricName := chi.URLParam(r, "name")
 	metricValueStr := chi.URLParam(r, "value")
@@ -112,7 +107,8 @@ func (m *MemStorage) getMetricHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Metric not found", http.StatusNotFound)
 			return
 		}
-		fmt.Fprintf(w, "%v", val)
+		strVal := strconv.FormatFloat(val, 'f', -1, 64)
+		w.Write([]byte(strVal))
 
 	case "counter":
 		val, ok := m.GetCounter(metricName)
@@ -120,7 +116,8 @@ func (m *MemStorage) getMetricHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Metric not found", http.StatusNotFound)
 			return
 		}
-		fmt.Fprintf(w, "%v", val)
+		strVal := strconv.FormatInt(val, 10)
+		w.Write([]byte(strVal))
 
 	default:
 		http.Error(w, "Unknown metric type", http.StatusNotFound)
