@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
 	"net/http"
@@ -12,8 +13,11 @@ import (
 )
 
 func main() {
+	var addr string
+	flag.StringVar(&addr, "a", "localhost:8080", "Порт")
+	flag.Parse()
+
 	r := chi.NewRouter()
-	addr := ":8080"
 	storage := NewMemStorage()
 	r.Post("/update/{type}/{name}/{value}", storage.updateHandler)
 	r.Get("/value/{type}/{name}", storage.getMetricHandler)

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"math/rand"
 	"net/http"
@@ -22,8 +23,20 @@ func NewMemStorage() *MemStorage {
 
 func main() {
 	storage := NewMemStorage()
-	pollInterval := 2 * time.Second
-	reportInterval := 10 * time.Second
+
+	var pollInterval int
+	var reportInterval int
+	var addr string
+
+	flag.StringVar(&addr, "a", "localhost:8080", "Порт")
+	flag.IntVar(&pollInterval, "p", 2, "частота опроса")
+	flag.IntVar(&reportInterval, "r", 10, "частота отправки")
+
+	flag.Parse()
+
+	pollDuration := time.Duration(pollInterval) * time.Second
+	reportDuration := time.Duration(reportInterval) * time.Second
+
 	fmt.Println("Агент запущен...")
 	var memStats runtime.MemStats
 
@@ -59,12 +72,12 @@ func main() {
 		storage.gaugeMetrics["Sys"] = float64(memStats.Sys)
 		storage.gaugeMetrics["TotalAlloc"] = float64(memStats.TotalAlloc)
 
-		if ticks == int(reportInterval/pollInterval) {
+		if ticks == int(reportDuration/pollDuration) {
 
 			ticks = 0
 
 			for name, value := range storage.gaugeMetrics {
-				url := fmt.Sprintf("http://localhost:8080/update/gauge/%s/%f", name, value)
+				url := fmt.Sprintf("http://%s/update/gauge/%s/%f", addr, name, value)
 
 				resp, err := http.Post(
 					url,
@@ -81,7 +94,7 @@ func main() {
 			}
 
 			for name, value := range storage.counterMetrics {
-				url := fmt.Sprintf("http://localhost:8080/update/counter/%s/%d", name, value)
+				url := fmt.Sprintf("http://%s/update/counter/%s/%d", addr, name, value)
 
 				resp, err := http.Post(
 					url,
@@ -99,6 +112,6 @@ func main() {
 		}
 		storage.counterMetrics["PollCount"]++
 		storage.gaugeMetrics["RandomValue"] = rand.Float64()
-		time.Sleep(pollInterval)
+		time.Sleep(pollDuration)
 	}
 }
