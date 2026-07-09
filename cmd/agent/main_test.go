@@ -1,34 +1,43 @@
 package main
 
-import (
-	"testing"
-)
+import "testing"
 
-func TestFlagMemStorage(t *testing.T) {
-	storage := NewMemStorage()
-
-	if storage.gaugeMetrics == nil {
-		t.Errorf("Ошибка: мапа gaugeMetrics не инициализирована (равна nil)")
+func TestParseFlags(t *testing.T) {
+	tests := []struct {
+		name           string
+		args           []string
+		expectedConfig Config
+	}{
+		{
+			name: "Дефолтные значения",
+			args: []string{},
+			expectedConfig: Config{
+				Addr:           "localhost:8080",
+				PollInterval:   2,
+				ReportInterval: 10,
+			},
+		},
+		{
+			name: "Все кастомные значения",
+			args: []string{"-a", ":9090", "-p", "5", "-r", "20"},
+			expectedConfig: Config{
+				Addr:           ":9090",
+				PollInterval:   5,
+				ReportInterval: 20,
+			},
+		},
 	}
 
-	if storage.counterMetrics == nil {
-		t.Errorf("Ошибка: мапа counterMetrics не инициализирована (равна nil)")
-	}
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := parseFlags(tt.args)
+			if err != nil {
+				t.Fatalf("Неожиданная ошибка: %v", err)
+			}
 
-func TestFlagAgentMetrics(t *testing.T) {
-	storage := NewMemStorage()
-
-	storage.gaugeMetrics["RandomValue"] = 0.123
-	storage.counterMetrics["PollCount"]++
-
-	storage.counterMetrics["PollCount"]++
-
-	if val, ok := storage.gaugeMetrics["RandomValue"]; !ok || val != 0.123 {
-		t.Errorf("Ожидалось значение RandomValue 0.123, получено %v", val)
-	}
-
-	if val, ok := storage.counterMetrics["PollCount"]; !ok || val != 2 {
-		t.Errorf("Ожидалось значение PollCount 2, получено %v", val)
+			if cfg != tt.expectedConfig {
+				t.Errorf("Ожидался конфиг %+v, получен %+v", tt.expectedConfig, cfg.Addr)
+			}
+		})
 	}
 }
