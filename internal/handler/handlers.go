@@ -21,17 +21,10 @@ type MetricStorage interface {
 
 type Handler struct {
 	storage MetricStorage
+	tmpl    *template.Template
 }
 
 func NewHandler(storage MetricStorage) *Handler {
-	return &Handler{
-		storage: storage,
-	}
-}
-
-var metricsTemplate *template.Template
-
-func init() {
 	tmplText := `
 <!DOCTYPE html>
 <html>
@@ -47,7 +40,12 @@ func init() {
 	</ul>
 </body>
 </html>`
-	metricsTemplate = template.Must(template.New("metrics").Parse(tmplText))
+	tmpl := template.Must(template.New("metrics").Parse(tmplText))
+
+	return &Handler{
+		storage: storage,
+		tmpl:    tmpl,
+	}
 }
 
 func (h *Handler) UpdateMetricHandler(w http.ResponseWriter, r *http.Request) {
@@ -124,7 +122,7 @@ func (h *Handler) GetAllMetricsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var buf bytes.Buffer
-	if err := metricsTemplate.Execute(&buf, data); err != nil {
+	if err := h.tmpl.Execute(&buf, data); err != nil {
 		http.Error(w, "Error rendering template", http.StatusInternalServerError)
 		return
 	}
