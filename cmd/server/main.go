@@ -2,33 +2,42 @@ package main
 
 import (
 	"flag"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 
 	"github.com/PRoroKEd1/go-metrics/internal/handler"
 	"github.com/PRoroKEd1/go-metrics/internal/storage"
+	"github.com/caarlos0/env/v11"
 	"github.com/go-chi/chi/v5"
 )
 
 type Config struct {
-	Addr string
+	Addr string `env:"ADDRESS"`
 }
 
-func parseFlags(args []string) (Config, error) {
+func parseConfig(args []string) (Config, error) {
 	var cfg Config
 	f := flag.NewFlagSet("сервер", flag.ContinueOnError)
 
 	f.StringVar(&cfg.Addr, "a", "localhost:8080", "адрес эндпоинта HTTP-сервера")
 
-	err := f.Parse(args)
-	return cfg, err
+	if err := f.Parse(args); err != nil {
+		return cfg, err
+	}
+
+	if err := env.Parse(&cfg); err != nil {
+		return cfg, err
+	}
+
+	return cfg, nil
 }
 
 func main() {
-	cfg, err := parseFlags(os.Args[1:])
+	cfg, err := parseConfig(os.Args[1:])
 	if err != nil {
-		log.Fatalf("Ошибка парсинга флагов: %v", err)
+		slog.Error("Ошибка инициализации конфига", "err", err)
+		os.Exit(1)
 	}
 
 	store := storage.NewMemStorage()
@@ -39,9 +48,10 @@ func main() {
 	r.Get("/value/{type}/{name}", h.GetMetricHandler)
 	r.Get("/", h.GetAllMetricsHandler)
 
-	log.Printf("Сервер запущен и слушает порт %s", cfg.Addr)
-	if err := http.ListenAndServe(cfg.Addr, r); err != nil {
-		log.Fatalf("Ошибка при запуске сервера: %v", err)
-	}
+	slog.Info("Сервер запущен", "address", cfg.Addr)
 
+	if err := http.ListenAndServe(cfg.Addr, r); err != nil {
+		slog.Error("Ошибка при запуске сервера", "err", err)
+		os.Exit(1)
+	}
 }
