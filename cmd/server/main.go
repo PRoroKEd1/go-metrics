@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/PRoroKEd1/go-metrics/internal/handler"
+	"github.com/PRoroKEd1/go-metrics/internal/logging"
 	"github.com/PRoroKEd1/go-metrics/internal/storage"
 	"github.com/caarlos0/env/v11"
 	"github.com/go-chi/chi/v5"
@@ -34,9 +35,9 @@ func parseConfig(args []string) (Config, error) {
 }
 
 func main() {
-	cfg, err := parseConfig(os.Args[1:])
-	if err != nil {
-		slog.Error("Ошибка инициализации конфига", "err", err)
+
+	if err := logging.Initialize("info"); err != nil {
+		slog.Error("Ошибка инициализации логгера", "err", err)
 		os.Exit(1)
 	}
 
@@ -44,6 +45,15 @@ func main() {
 	h := handler.NewHandler(store)
 
 	r := chi.NewRouter()
+
+	r.Use(logging.RequestLogger)
+
+	cfg, err := parseConfig(os.Args[1:])
+	if err != nil {
+		slog.Error("Ошибка инициализации конфига", "err", err)
+		os.Exit(1)
+	}
+
 	r.Post("/update/{type}/{name}/{value}", h.UpdateMetricHandler)
 	r.Get("/value/{type}/{name}", h.GetMetricHandler)
 	r.Get("/", h.GetAllMetricsHandler)
