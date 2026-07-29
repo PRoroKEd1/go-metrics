@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/PRoroKEd1/go-metrics/internal/compress"
 	"github.com/PRoroKEd1/go-metrics/internal/handler"
 	"github.com/PRoroKEd1/go-metrics/internal/logging"
 	"github.com/PRoroKEd1/go-metrics/internal/storage"
@@ -47,6 +48,8 @@ func main() {
 	r := chi.NewRouter()
 
 	r.Use(logging.RequestLogger)
+
+	r.Use(compress.GzipMiddleware)
 
 	cfg, err := parseConfig(os.Args[1:])
 	if err != nil {

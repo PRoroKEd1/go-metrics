@@ -2,6 +2,7 @@ package agent
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -23,6 +24,23 @@ func NewMemStorage() *MemStorage {
 		gaugeMetrics:   make(map[string]float64),
 		counterMetrics: make(map[string]int64),
 	}
+}
+
+func compress(data []byte) ([]byte, error) {
+	var b bytes.Buffer
+	w, err := gzip.NewWriterLevel(&b, gzip.BestSpeed)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка инициализации сжатия: %v", err)
+	}
+	_, err = w.Write(data)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка записи данных для сжатия: %v", err)
+	}
+	err = w.Close()
+	if err != nil {
+		return nil, fmt.Errorf("ошибка закрытия gzip writer: %v", err)
+	}
+	return b.Bytes(), nil
 }
 
 func Run(addr string, pollInterval int, reportInterval int) {
@@ -81,14 +99,25 @@ func Run(addr string, pollInterval int, reportInterval int) {
 					continue
 				}
 
-				url := fmt.Sprintf("http://%s/update/", addr)
-				resp, err := http.Post(
-					url,
-					"application/json",
-					bytes.NewBuffer(body),
-				)
+				compressedBody, err := compress(body)
 				if err != nil {
-					log.Println("Ошибка запроса:", err)
+					log.Println("Ошибка сжатия:", err)
+					continue
+				}
+
+				url := fmt.Sprintf("http://%s/update/", addr)
+				req, err := http.NewRequest("POST", url, bytes.NewBuffer(compressedBody))
+				if err != nil {
+					log.Println("Ошибка создания запроса:", err)
+					continue
+				}
+
+				req.Header.Set("Content-Type", "application/json")
+				req.Header.Set("Content-Encoding", "gzip")
+
+				resp, err := http.DefaultClient.Do(req)
+				if err != nil {
+					log.Println("Ошибка отправки запроса:", err)
 					continue
 				}
 				resp.Body.Close()
@@ -110,15 +139,26 @@ func Run(addr string, pollInterval int, reportInterval int) {
 					log.Println("Ошибка сериализации:", err)
 					continue
 				}
-				url := fmt.Sprintf("http://%s/update/", addr)
 
-				resp, err := http.Post(
-					url,
-					"application/json",
-					bytes.NewBuffer(body),
-				)
+				compressedBody, err := compress(body)
 				if err != nil {
-					log.Println("Ошибка запроса:", err)
+					log.Println("Ошибка сжатия:", err)
+					continue
+				}
+
+				url := fmt.Sprintf("http://%s/update/", addr)
+				req, err := http.NewRequest("POST", url, bytes.NewBuffer(compressedBody))
+				if err != nil {
+					log.Println("Ошибка создания запроса:", err)
+					continue
+				}
+
+				req.Header.Set("Content-Type", "application/json")
+				req.Header.Set("Content-Encoding", "gzip")
+
+				resp, err := http.DefaultClient.Do(req)
+				if err != nil {
+					log.Println("Ошибка отправки запроса:", err)
 					continue
 				}
 				resp.Body.Close()
