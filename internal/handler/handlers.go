@@ -2,11 +2,13 @@ package handler
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"net/http"
 	"strconv"
 
+	models "github.com/PRoroKEd1/go-metrics/internal/model"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -128,4 +130,74 @@ func (h *Handler) GetAllMetricsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write(buf.Bytes())
+}
+
+func (h *Handler) UpdateJSONHandler(w http.ResponseWriter, r *http.Request) {
+	var req models.Metrics
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	switch req.MType {
+	case "gauge":
+		if req.Value == nil {
+			http.Error(w, "Value is required for gauge", http.StatusBadRequest)
+			return
+		}
+		h.storage.UpdateGauge(req.ID, *req.Value)
+
+	case "counter":
+		if req.Delta == nil {
+			http.Error(w, "Delta is required for counter", http.StatusBadRequest)
+			return
+		}
+		h.storage.UpdateCounter(req.ID, *req.Delta)
+
+		newVal, _ := h.storage.GetCounter(req.ID)
+		req.Delta = &newVal
+
+	default:
+		http.Error(w, "Unknown metric type", http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(req)
+}
+
+func (h *Handler) ValueJSONHandler(w http.ResponseWriter, r *http.Request) {
+	var req models.Metrics
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	switch req.MType {
+	case "gauge":
+		val, ok := h.storage.GetGauge(req.ID)
+		if !ok {
+			http.Error(w, "Metric not found", http.StatusNotFound)
+			return
+		}
+		req.Value = &val
+
+	case "counter":
+
+		val, ok := h.storage.GetCounter(req.ID)
+		if !ok {
+			http.Error(w, "Counter not found", http.StatusNotFound)
+			return
+		}
+		req.Delta = &val
+
+	default:
+		http.Error(w, "Unknown metric type", http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(req)
 }

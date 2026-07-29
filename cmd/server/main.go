@@ -54,8 +54,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	r.Post("/update/{type}/{name}/{value}", h.UpdateMetricHandler)
-	r.Get("/value/{type}/{name}", h.GetMetricHandler)
+	r.Post("/update/", h.UpdateJSONHandler)
+	r.Post("/value/", h.ValueJSONHandler)
 	r.Get("/", h.GetAllMetricsHandler)
 
 	slog.Info("Сервер запущен", "address", cfg.Addr)

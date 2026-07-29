@@ -1,12 +1,16 @@
 package agent
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"log"
 	"math/rand/v2"
 	"net/http"
 	"runtime"
 	"time"
+
+	models "github.com/PRoroKEd1/go-metrics/internal/model"
 )
 
 type MemStorage struct {
@@ -63,12 +67,25 @@ func Run(addr string, pollInterval int, reportInterval int) {
 			ticks = 0
 
 			for name, value := range store.gaugeMetrics {
-				url := fmt.Sprintf("http://%s/update/gauge/%s/%f", addr, name, value)
+				v := value
 
+				metric := models.Metrics{
+					ID:    name,
+					MType: "gauge",
+					Value: &v,
+				}
+
+				body, err := json.Marshal(metric)
+				if err != nil {
+					log.Println("Ошибка сериализации:", err)
+					continue
+				}
+
+				url := fmt.Sprintf("http://%s/update/", addr)
 				resp, err := http.Post(
 					url,
-					"text/plain",
-					nil,
+					"application/json",
+					bytes.NewBuffer(body),
 				)
 				if err != nil {
 					log.Println("Ошибка запроса:", err)
@@ -76,16 +93,29 @@ func Run(addr string, pollInterval int, reportInterval int) {
 				}
 				resp.Body.Close()
 
-				log.Println("Статус ответа:", resp.Status)
+				log.Println("Статус ответа (gauge):", resp.Status)
 			}
 
-			for name, value := range store.counterMetrics {
-				url := fmt.Sprintf("http://%s/update/counter/%s/%d", addr, name, value)
+			for name, delta := range store.counterMetrics {
+				v := delta
+
+				metric := models.Metrics{
+					ID:    name,
+					MType: "counter",
+					Delta: &v,
+				}
+
+				body, err := json.Marshal(metric)
+				if err != nil {
+					log.Println("Ошибка сериализации:", err)
+					continue
+				}
+				url := fmt.Sprintf("http://%s/update/", addr)
 
 				resp, err := http.Post(
 					url,
-					"text/plain",
-					nil,
+					"application/json",
+					bytes.NewBuffer(body),
 				)
 				if err != nil {
 					log.Println("Ошибка запроса:", err)
@@ -93,7 +123,7 @@ func Run(addr string, pollInterval int, reportInterval int) {
 				}
 				resp.Body.Close()
 
-				log.Println("Статус ответа:", resp.Status)
+				log.Println("Статус ответа (counter):", resp.Status)
 			}
 			store.counterMetrics["PollCount"] = 0
 		}
