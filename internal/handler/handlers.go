@@ -19,14 +19,17 @@ type MetricStorage interface {
 	GetAllCounters() map[string]int64
 	UpdateGauge(name string, value float64)
 	UpdateCounter(name string, value int64)
+	SaveToFile(filename string) error
 }
 
 type Handler struct {
-	storage MetricStorage
-	tmpl    *template.Template
+	storage  MetricStorage
+	tmpl     *template.Template
+	syncSave bool
+	filePath string
 }
 
-func NewHandler(storage MetricStorage) *Handler {
+func NewHandler(storage MetricStorage, syncSave bool, filePath string) *Handler {
 	tmplText := `
 <!DOCTYPE html>
 <html>
@@ -45,8 +48,10 @@ func NewHandler(storage MetricStorage) *Handler {
 	tmpl := template.Must(template.New("metrics").Parse(tmplText))
 
 	return &Handler{
-		storage: storage,
-		tmpl:    tmpl,
+		storage:  storage,
+		tmpl:     tmpl,
+		syncSave: syncSave,
+		filePath: filePath,
 	}
 }
 
@@ -75,6 +80,10 @@ func (h *Handler) UpdateMetricHandler(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "Invalid metric type", http.StatusBadRequest)
 		return
+	}
+
+	if h.syncSave {
+		h.storage.SaveToFile(h.filePath)
 	}
 
 	w.Header().Set("Content-Type", "text/plain")
@@ -196,6 +205,10 @@ func (h *Handler) ValueJSONHandler(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "Unknown metric type", http.StatusBadRequest)
 		return
+	}
+
+	if h.syncSave {
+		h.storage.SaveToFile(h.filePath)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
