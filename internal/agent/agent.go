@@ -43,6 +43,39 @@ func compress(data []byte) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
+func sendMetric(addr string, metric models.Metrics) {
+	body, err := json.Marshal(metric)
+	if err != nil {
+		log.Println("Ошибка сериализации:", err)
+		return
+	}
+
+	compressedBody, err := compress(body)
+	if err != nil {
+		log.Println("Ошибка сжатия:", err)
+		return
+	}
+
+	url := fmt.Sprintf("http://%s/update/", addr)
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(compressedBody))
+	if err != nil {
+		log.Println("Ошибка создания запроса:", err)
+		return
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Encoding", "gzip")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		log.Println("Ошибка отправки запроса:", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	log.Println("Статус ответа:", resp.Status)
+}
+
 func Run(addr string, pollInterval int, reportInterval int) {
 	store := NewMemStorage()
 	pollDuration := time.Duration(pollInterval) * time.Second
@@ -81,89 +114,26 @@ func Run(addr string, pollInterval int, reportInterval int) {
 		store.gaugeMetrics["TotalAlloc"] = float64(memStats.TotalAlloc)
 
 		if ticks == int(reportDuration/pollDuration) {
-
 			ticks = 0
 
 			for name, value := range store.gaugeMetrics {
 				v := value
-
 				metric := models.Metrics{
 					ID:    name,
 					MType: "gauge",
 					Value: &v,
 				}
-
-				body, err := json.Marshal(metric)
-				if err != nil {
-					log.Println("Ошибка сериализации:", err)
-					continue
-				}
-
-				compressedBody, err := compress(body)
-				if err != nil {
-					log.Println("Ошибка сжатия:", err)
-					continue
-				}
-
-				url := fmt.Sprintf("http://%s/update/", addr)
-				req, err := http.NewRequest("POST", url, bytes.NewBuffer(compressedBody))
-				if err != nil {
-					log.Println("Ошибка создания запроса:", err)
-					continue
-				}
-
-				req.Header.Set("Content-Type", "application/json")
-				req.Header.Set("Content-Encoding", "gzip")
-
-				resp, err := http.DefaultClient.Do(req)
-				if err != nil {
-					log.Println("Ошибка отправки запроса:", err)
-					continue
-				}
-				resp.Body.Close()
-
-				log.Println("Статус ответа (gauge):", resp.Status)
+				sendMetric(addr, metric)
 			}
 
 			for name, delta := range store.counterMetrics {
-				v := delta
-
+				d := delta
 				metric := models.Metrics{
 					ID:    name,
 					MType: "counter",
-					Delta: &v,
+					Delta: &d,
 				}
-
-				body, err := json.Marshal(metric)
-				if err != nil {
-					log.Println("Ошибка сериализации:", err)
-					continue
-				}
-
-				compressedBody, err := compress(body)
-				if err != nil {
-					log.Println("Ошибка сжатия:", err)
-					continue
-				}
-
-				url := fmt.Sprintf("http://%s/update/", addr)
-				req, err := http.NewRequest("POST", url, bytes.NewBuffer(compressedBody))
-				if err != nil {
-					log.Println("Ошибка создания запроса:", err)
-					continue
-				}
-
-				req.Header.Set("Content-Type", "application/json")
-				req.Header.Set("Content-Encoding", "gzip")
-
-				resp, err := http.DefaultClient.Do(req)
-				if err != nil {
-					log.Println("Ошибка отправки запроса:", err)
-					continue
-				}
-				resp.Body.Close()
-
-				log.Println("Статус ответа (counter):", resp.Status)
+				sendMetric(addr, metric)
 			}
 			store.counterMetrics["PollCount"] = 0
 		}

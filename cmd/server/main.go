@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/PRoroKEd1/go-metrics/internal/compress"
@@ -95,10 +98,37 @@ func main() {
 
 	r.Get("/", h.GetAllMetricsHandler)
 
-	slog.Info("Сервер запущен", "address", cfg.Addr)
+	srv := &http.Server{
+		Addr:    cfg.Addr,
+		Handler: r,
+	}
+	idleConnsClosed := make(chan struct{})
 
-	if err := http.ListenAndServe(cfg.Addr, r); err != nil {
+	go func() {
+		sigint := make(chan os.Signal, 1)
+		signal.Notify(sigint, os.Interrupt, syscall.SIGTERM)
+
+		<-sigint
+		slog.Info("Получен сигнал завершения, останавливаем сервер...")
+
+		if err := srv.Shutdown(context.Background()); err != nil {
+			slog.Error("Ошибка при остановке сервера", "err", err)
+		}
+		if err := store.SaveToFile(cfg.FileStoragePath); err != nil {
+			slog.Error("Ошибка финального сохранения метрик", "err", err)
+		} else {
+			slog.Info("Финальное сохранение прошло успешно")
+		}
+
+		close(idleConnsClosed)
+	}()
+
+	slog.Info("Сервер запущен", "address", cfg.Addr)
+	if err := srv.ListenAndServe(); err != http.ErrServerClosed {
 		slog.Error("Ошибка при запуске сервера", "err", err)
 		os.Exit(1)
 	}
+
+	<-idleConnsClosed
+	slog.Info("Сервер успешно завершил работу")
 }

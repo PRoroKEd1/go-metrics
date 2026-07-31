@@ -172,6 +172,10 @@ func (h *Handler) UpdateJSONHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.syncSave {
+		h.storage.SaveToFile(h.filePath)
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(req)
 }
@@ -205,10 +209,6 @@ func (h *Handler) ValueJSONHandler(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "Unknown metric type", http.StatusBadRequest)
 		return
-	}
-
-	if h.syncSave {
-		h.storage.SaveToFile(h.filePath)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
