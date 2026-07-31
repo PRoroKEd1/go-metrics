@@ -1,12 +1,17 @@
 package agent
 
 import (
+	"bytes"
+	"compress/gzip"
+	"encoding/json"
 	"fmt"
 	"log"
 	"math/rand/v2"
 	"net/http"
 	"runtime"
 	"time"
+
+	models "github.com/PRoroKEd1/go-metrics/internal/model"
 )
 
 type MemStorage struct {
@@ -19,6 +24,56 @@ func NewMemStorage() *MemStorage {
 		gaugeMetrics:   make(map[string]float64),
 		counterMetrics: make(map[string]int64),
 	}
+}
+
+func compress(data []byte) ([]byte, error) {
+	var b bytes.Buffer
+	w, err := gzip.NewWriterLevel(&b, gzip.BestSpeed)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка инициализации сжатия: %v", err)
+	}
+	_, err = w.Write(data)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка записи данных для сжатия: %v", err)
+	}
+	err = w.Close()
+	if err != nil {
+		return nil, fmt.Errorf("ошибка закрытия gzip writer: %v", err)
+	}
+	return b.Bytes(), nil
+}
+
+func sendMetric(addr string, metric models.Metrics) {
+	body, err := json.Marshal(metric)
+	if err != nil {
+		log.Println("Ошибка сериализации:", err)
+		return
+	}
+
+	compressedBody, err := compress(body)
+	if err != nil {
+		log.Println("Ошибка сжатия:", err)
+		return
+	}
+
+	url := fmt.Sprintf("http://%s/update/", addr)
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(compressedBody))
+	if err != nil {
+		log.Println("Ошибка создания запроса:", err)
+		return
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Encoding", "gzip")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		log.Println("Ошибка отправки запроса:", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	log.Println("Статус ответа:", resp.Status)
 }
 
 func Run(addr string, pollInterval int, reportInterval int) {
@@ -59,41 +114,26 @@ func Run(addr string, pollInterval int, reportInterval int) {
 		store.gaugeMetrics["TotalAlloc"] = float64(memStats.TotalAlloc)
 
 		if ticks == int(reportDuration/pollDuration) {
-
 			ticks = 0
 
 			for name, value := range store.gaugeMetrics {
-				url := fmt.Sprintf("http://%s/update/gauge/%s/%f", addr, name, value)
-
-				resp, err := http.Post(
-					url,
-					"text/plain",
-					nil,
-				)
-				if err != nil {
-					log.Println("Ошибка запроса:", err)
-					continue
+				v := value
+				metric := models.Metrics{
+					ID:    name,
+					MType: "gauge",
+					Value: &v,
 				}
-				resp.Body.Close()
-
-				log.Println("Статус ответа:", resp.Status)
+				sendMetric(addr, metric)
 			}
 
-			for name, value := range store.counterMetrics {
-				url := fmt.Sprintf("http://%s/update/counter/%s/%d", addr, name, value)
-
-				resp, err := http.Post(
-					url,
-					"text/plain",
-					nil,
-				)
-				if err != nil {
-					log.Println("Ошибка запроса:", err)
-					continue
+			for name, delta := range store.counterMetrics {
+				d := delta
+				metric := models.Metrics{
+					ID:    name,
+					MType: "counter",
+					Delta: &d,
 				}
-				resp.Body.Close()
-
-				log.Println("Статус ответа:", resp.Status)
+				sendMetric(addr, metric)
 			}
 			store.counterMetrics["PollCount"] = 0
 		}

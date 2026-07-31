@@ -2,19 +2,21 @@ package main
 
 import (
 	"flag"
-	"log"
+	"log/slog"
 	"os"
+
+	"github.com/caarlos0/env/v11"
 
 	"github.com/PRoroKEd1/go-metrics/internal/agent"
 )
 
 type Config struct {
-	Addr           string
-	PollInterval   int
-	ReportInterval int
+	Addr           string `env:"ADDRESS"`
+	PollInterval   int    `env:"POLL_INTERVAL"`
+	ReportInterval int    `env:"REPORT_INTERVAL"`
 }
 
-func parseFlags(args []string) (Config, error) {
+func parseConfig(args []string) (Config, error) {
 	var cfg Config
 	f := flag.NewFlagSet("агент", flag.ContinueOnError)
 
@@ -22,19 +24,29 @@ func parseFlags(args []string) (Config, error) {
 	f.IntVar(&cfg.PollInterval, "p", 2, "частота опроса")
 	f.IntVar(&cfg.ReportInterval, "r", 10, "частота отправки")
 
-	err := f.Parse(args)
-	return cfg, err
+	if err := f.Parse(args); err != nil {
+		return cfg, err
+	}
+
+	if err := env.Parse(&cfg); err != nil {
+		return cfg, err
+	}
+
+	return cfg, nil
 }
 
 func main() {
-	cfg, err := parseFlags(os.Args[1:])
+	cfg, err := parseConfig(os.Args[1:])
 	if err != nil {
-		log.Fatalf("Ошибка парсинга флагов: %v", err)
+		slog.Error("Ошибка парсинга конфига", "err", err)
+		os.Exit(1)
 	}
 
 	if cfg.PollInterval <= 0 {
-		log.Fatalf("Ошибка. Неподходящее число. Число не должно быть меньше 1")
+		slog.Error("Ошибка. Неподходящее число для PollInterval. Должно быть >= 1")
+		os.Exit(1)
 	}
-	log.Println("Агент запущен...")
+
+	slog.Info("Агент запущен...", "addr", cfg.Addr)
 	agent.Run(cfg.Addr, cfg.PollInterval, cfg.ReportInterval)
 }

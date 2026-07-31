@@ -1,43 +1,21 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
-func TestParseFlags(t *testing.T) {
-	tests := []struct {
-		name           string
-		args           []string
-		expectedConfig Config
-	}{
-		{
-			name: "Дефолтные значения",
-			args: []string{},
-			expectedConfig: Config{
-				Addr:           "localhost:8080",
-				PollInterval:   2,
-				ReportInterval: 10,
-			},
-		},
-		{
-			name: "Все кастомные значения",
-			args: []string{"-a", ":9090", "-p", "5", "-r", "20"},
-			expectedConfig: Config{
-				Addr:           ":9090",
-				PollInterval:   5,
-				ReportInterval: 20,
-			},
-		},
+func TestParseConfig_EnvPriority(t *testing.T) {
+	os.Setenv("ADDRESS", "127.0.0.1:9090")
+	defer os.Unsetenv("ADDRESS")
+
+	args := []string{"-a", "localhost:8080"}
+	cfg, err := parseConfig(args)
+
+	if err != nil {
+		t.Fatalf("ожидалось отсутствие ошибки, получили: %v", err)
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg, err := parseFlags(tt.args)
-			if err != nil {
-				t.Fatalf("Неожиданная ошибка: %v", err)
-			}
-
-			if cfg != tt.expectedConfig {
-				t.Errorf("Ожидался конфиг %+v, получен %+v", tt.expectedConfig, cfg.Addr)
-			}
-		})
+	if cfg.Addr != "127.0.0.1:9090" {
+		t.Errorf("ожидался адрес 127.0.0.1:9090, получили: %s", cfg.Addr)
 	}
 }

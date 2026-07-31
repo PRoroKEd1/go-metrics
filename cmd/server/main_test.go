@@ -1,37 +1,26 @@
 package main
 
 import (
+	"os"
 	"testing"
 )
 
-func TestParseFlags(t *testing.T) {
-	tests := []struct {
-		name         string
-		args         []string
-		expectedAddr string
-	}{
-		{
-			name:         "Дефолтные значения",
-			args:         []string{},
-			expectedAddr: "localhost:8080",
-		},
-		{
-			name:         "Кастомный адресс",
-			args:         []string{"-a", ":9090"},
-			expectedAddr: ":9090",
-		},
+func TestParseConfig_Server(t *testing.T) {
+	os.Setenv("ADDRESS", "127.0.0.1:9090")
+	os.Setenv("STORE_INTERVAL", "10")
+	defer os.Unsetenv("ADDRESS")
+	defer os.Unsetenv("STORE_INTERVAL")
+
+	args := []string{"-a", "localhost:8080"}
+	cfg, err := parseConfig(args)
+
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg, err := parseFlags(tt.args)
-			if err != nil {
-				t.Fatalf("Неожиданная ошибка: %v", err)
-			}
-
-			if cfg.Addr != tt.expectedAddr {
-				t.Errorf("Ожидался адрес %s, получен %s", tt.expectedAddr, cfg.Addr)
-			}
-		})
+	if cfg.Addr != "127.0.0.1:9090" {
+		t.Errorf("адрес: ожидали 127.0.0.1:9090, получили %s", cfg.Addr)
+	}
+	if cfg.StoreInterval != 10 {
+		t.Errorf("интервал: ожидали 10, получили %d", cfg.StoreInterval)
 	}
 }

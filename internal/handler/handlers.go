@@ -2,11 +2,13 @@ package handler
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"net/http"
 	"strconv"
 
+	models "github.com/PRoroKEd1/go-metrics/internal/model"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -17,14 +19,17 @@ type MetricStorage interface {
 	GetAllCounters() map[string]int64
 	UpdateGauge(name string, value float64)
 	UpdateCounter(name string, value int64)
+	SaveToFile(filename string) error
 }
 
 type Handler struct {
-	storage MetricStorage
-	tmpl    *template.Template
+	storage  MetricStorage
+	tmpl     *template.Template
+	syncSave bool
+	filePath string
 }
 
-func NewHandler(storage MetricStorage) *Handler {
+func NewHandler(storage MetricStorage, syncSave bool, filePath string) *Handler {
 	tmplText := `
 <!DOCTYPE html>
 <html>
@@ -43,8 +48,10 @@ func NewHandler(storage MetricStorage) *Handler {
 	tmpl := template.Must(template.New("metrics").Parse(tmplText))
 
 	return &Handler{
-		storage: storage,
-		tmpl:    tmpl,
+		storage:  storage,
+		tmpl:     tmpl,
+		syncSave: syncSave,
+		filePath: filePath,
 	}
 }
 
@@ -73,6 +80,10 @@ func (h *Handler) UpdateMetricHandler(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "Invalid metric type", http.StatusBadRequest)
 		return
+	}
+
+	if h.syncSave {
+		h.storage.SaveToFile(h.filePath)
 	}
 
 	w.Header().Set("Content-Type", "text/plain")
@@ -128,4 +139,78 @@ func (h *Handler) GetAllMetricsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write(buf.Bytes())
+}
+
+func (h *Handler) UpdateJSONHandler(w http.ResponseWriter, r *http.Request) {
+	var req models.Metrics
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	switch req.MType {
+	case "gauge":
+		if req.Value == nil {
+			http.Error(w, "Value is required for gauge", http.StatusBadRequest)
+			return
+		}
+		h.storage.UpdateGauge(req.ID, *req.Value)
+
+	case "counter":
+		if req.Delta == nil {
+			http.Error(w, "Delta is required for counter", http.StatusBadRequest)
+			return
+		}
+		h.storage.UpdateCounter(req.ID, *req.Delta)
+
+		newVal, _ := h.storage.GetCounter(req.ID)
+		req.Delta = &newVal
+
+	default:
+		http.Error(w, "Unknown metric type", http.StatusBadRequest)
+		return
+	}
+
+	if h.syncSave {
+		h.storage.SaveToFile(h.filePath)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(req)
+}
+
+func (h *Handler) ValueJSONHandler(w http.ResponseWriter, r *http.Request) {
+	var req models.Metrics
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	switch req.MType {
+	case "gauge":
+		val, ok := h.storage.GetGauge(req.ID)
+		if !ok {
+			http.Error(w, "Metric not found", http.StatusNotFound)
+			return
+		}
+		req.Value = &val
+
+	case "counter":
+
+		val, ok := h.storage.GetCounter(req.ID)
+		if !ok {
+			http.Error(w, "Counter not found", http.StatusNotFound)
+			return
+		}
+		req.Delta = &val
+
+	default:
+		http.Error(w, "Unknown metric type", http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(req)
 }
