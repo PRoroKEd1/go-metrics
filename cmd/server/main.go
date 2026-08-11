@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"flag"
 	"log/slog"
 	"net/http"
@@ -9,6 +10,8 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	_ "github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/PRoroKEd1/go-metrics/internal/compress"
 	"github.com/PRoroKEd1/go-metrics/internal/handler"
@@ -23,6 +26,7 @@ type Config struct {
 	StoreInterval   int    `env:"STORE_INTERVAL"`
 	FileStoragePath string `env:"FILE_STORAGE_PATH"`
 	Restore         bool   `env:"RESTORE"`
+	DatabaseDSN     string `env:"DATABASE_DSN"`
 }
 
 func parseConfig(args []string) (Config, error) {
@@ -33,6 +37,7 @@ func parseConfig(args []string) (Config, error) {
 	f.IntVar(&cfg.StoreInterval, "i", 300, "Интервал")
 	f.BoolVar(&cfg.Restore, "r", true, "Восстанавливать ли данные")
 	f.StringVar(&cfg.FileStoragePath, "f", "/tmp/metrics-db.json", "Путь файла")
+	f.StringVar(&cfg.DatabaseDSN, "d", "", "Подключения к ДБ")
 
 	if err := f.Parse(args); err != nil {
 		return cfg, err
@@ -58,9 +63,20 @@ func main() {
 		os.Exit(1)
 	}
 
+	var db *sql.DB
+	if cfg.DatabaseDSN != "" {
+		var err error
+		db, err = sql.Open("pgx", cfg.DatabaseDSN)
+		if err != nil {
+			slog.Error("Не удалось открыть соединение с БД", "err", err)
+		} else {
+			slog.Info("База данных инициализирована")
+		}
+	}
+
 	store := storage.NewMemStorage()
 
-	h := handler.NewHandler(store, cfg.StoreInterval == 0, cfg.FileStoragePath)
+	h := handler.NewHandler(store, cfg.StoreInterval == 0, cfg.FileStoragePath, db)
 
 	r := chi.NewRouter()
 
@@ -96,6 +112,7 @@ func main() {
 	r.Post("/update/{type}/{name}/{value}", h.UpdateMetricHandler)
 	r.Get("/value/{type}/{name}", h.GetMetricHandler)
 
+	r.Get("/ping", h.PingDBHandler)
 	r.Get("/", h.GetAllMetricsHandler)
 
 	srv := &http.Server{
@@ -127,6 +144,11 @@ func main() {
 	if err := srv.ListenAndServe(); err != http.ErrServerClosed {
 		slog.Error("Ошибка при запуске сервера", "err", err)
 		os.Exit(1)
+	}
+
+	if db != nil {
+		db.Close()
+		slog.Info("Соединение с БД закрыто")
 	}
 
 	<-idleConnsClosed

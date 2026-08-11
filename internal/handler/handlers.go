@@ -2,11 +2,14 @@ package handler
 
 import (
 	"bytes"
+	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"html/template"
 	"net/http"
 	"strconv"
+	"time"
 
 	models "github.com/PRoroKEd1/go-metrics/internal/model"
 	"github.com/go-chi/chi/v5"
@@ -27,9 +30,10 @@ type Handler struct {
 	tmpl     *template.Template
 	syncSave bool
 	filePath string
+	db       *sql.DB
 }
 
-func NewHandler(storage MetricStorage, syncSave bool, filePath string) *Handler {
+func NewHandler(storage MetricStorage, syncSave bool, filePath string, db *sql.DB) *Handler {
 	tmplText := `
 <!DOCTYPE html>
 <html>
@@ -52,7 +56,25 @@ func NewHandler(storage MetricStorage, syncSave bool, filePath string) *Handler 
 		tmpl:     tmpl,
 		syncSave: syncSave,
 		filePath: filePath,
+		db:       db,
 	}
+}
+
+func (h *Handler) PingDBHandler(w http.ResponseWriter, r *http.Request) {
+
+	if h.db == nil {
+		http.Error(w, "Database not configured", http.StatusInternalServerError)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 1*time.Second)
+	defer cancel()
+
+	if err := h.db.PingContext(ctx); err != nil {
+		http.Error(w, "Database connection failed", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
 }
 
 func (h *Handler) UpdateMetricHandler(w http.ResponseWriter, r *http.Request) {
