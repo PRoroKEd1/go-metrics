@@ -43,8 +43,12 @@ func compress(data []byte) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-func sendMetric(addr string, metric models.Metrics) {
-	body, err := json.Marshal(metric)
+func sendMetrics(addr string, metrics []models.Metrics) {
+	if len(metrics) == 0 {
+		return
+	}
+
+	body, err := json.Marshal(metrics)
 	if err != nil {
 		log.Println("Ошибка сериализации:", err)
 		return
@@ -56,7 +60,8 @@ func sendMetric(addr string, metric models.Metrics) {
 		return
 	}
 
-	url := fmt.Sprintf("http://%s/update/", addr)
+	url := fmt.Sprintf("http://%s/updates/", addr)
+
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(compressedBody))
 	if err != nil {
 		log.Println("Ошибка создания запроса:", err)
@@ -116,25 +121,29 @@ func Run(addr string, pollInterval int, reportInterval int) {
 		if ticks == int(reportDuration/pollDuration) {
 			ticks = 0
 
+			metrics := make([]models.Metrics, 0, len(store.gaugeMetrics)+len(store.counterMetrics))
+
 			for name, value := range store.gaugeMetrics {
 				v := value
-				metric := models.Metrics{
+
+				metrics = append(metrics, models.Metrics{
 					ID:    name,
 					MType: "gauge",
 					Value: &v,
-				}
-				sendMetric(addr, metric)
+				})
 			}
 
 			for name, delta := range store.counterMetrics {
 				d := delta
-				metric := models.Metrics{
+
+				metrics = append(metrics, models.Metrics{
 					ID:    name,
 					MType: "counter",
 					Delta: &d,
-				}
-				sendMetric(addr, metric)
+				})
 			}
+
+			sendMetrics(addr, metrics)
 			store.counterMetrics["PollCount"] = 0
 		}
 		store.counterMetrics["PollCount"]++
