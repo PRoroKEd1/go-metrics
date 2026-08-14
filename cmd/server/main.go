@@ -40,7 +40,7 @@ func parseConfig(args []string) (Config, error) {
 	f.StringVar(&cfg.Addr, "a", "localhost:8080", "адрес эндпоинта HTTP-сервера")
 	f.IntVar(&cfg.StoreInterval, "i", 300, "Интервал")
 	f.BoolVar(&cfg.Restore, "r", true, "Восстанавливать ли данные")
-	f.StringVar(&cfg.FileStoragePath, "f", "", "Путь файла")
+	f.StringVar(&cfg.FileStoragePath, "f", "/tmp/metrics-db.json", "Путь файла")
 	f.StringVar(&cfg.DatabaseDSN, "d", "", "Подключения к ДБ")
 
 	if err := f.Parse(args); err != nil {
@@ -49,6 +49,10 @@ func parseConfig(args []string) (Config, error) {
 
 	if err := env.Parse(&cfg); err != nil {
 		return cfg, err
+	}
+
+	if cfg.FileStoragePath == "" {
+		cfg.FileStoragePath = "/tmp/metrics-db.json"
 	}
 
 	return cfg, nil
@@ -93,7 +97,6 @@ func main() {
 
 		sourceDriver, err := (&file.File{}).Open(sourceURL)
 
-		slog.Info("Путь миграций", "path", sourceURL)
 		if err != nil {
 			slog.Error("Не удалось открыть миграции", "err", err)
 			os.Exit(1)
@@ -194,7 +197,7 @@ func main() {
 		if err := srv.Shutdown(context.Background()); err != nil {
 			slog.Error("Ошибка при остановке сервера", "err", err)
 		}
-		if cfg.DatabaseDSN == "" {
+		if cfg.DatabaseDSN == "" && cfg.FileStoragePath != "" {
 			if err := store.SaveToFile(cfg.FileStoragePath); err != nil {
 				slog.Error("Ошибка финального сохранения метрик", "err", err)
 			} else {
