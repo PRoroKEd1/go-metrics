@@ -3,10 +3,57 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"time"
+
+	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type PostgresStorage struct {
 	db *sql.DB
+}
+
+func isRetryablePostgresError(err error) bool {
+	var pgErr *pgconn.PgError
+
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case pgerrcode.ConnectionException,
+			pgerrcode.ConnectionDoesNotExist,
+			pgerrcode.ConnectionFailure:
+			return true
+		}
+	}
+
+	return false
+}
+
+func execWithRetry(ctx context.Context, db *sql.DB, query string, args ...any) error {
+	delays := []time.Duration{
+		1 * time.Second,
+		3 * time.Second,
+		5 * time.Second,
+	}
+
+	for attempt := 0; attempt <= len(delays); attempt++ {
+
+		_, err := db.ExecContext(ctx, query, args...)
+
+		if err == nil {
+			return nil
+		}
+
+		if !isRetryablePostgresError(err) {
+			return err
+		}
+
+		if attempt < len(delays) {
+			time.Sleep(delays[attempt])
+		}
+	}
+
+	return errors.New("postgres retry attempts exceeded")
 }
 
 func NewPostgresStorage(db *sql.DB) *PostgresStorage {
@@ -110,8 +157,9 @@ func (ps *PostgresStorage) GetAllCounters() map[string]int64 {
 }
 
 func (ps *PostgresStorage) UpdateGauge(name string, value float64) {
-	_, err := ps.db.ExecContext(
+	err := execWithRetry(
 		context.Background(),
+		ps.db,
 		`INSERT INTO metrics (id, type, value)
 		 VALUES ($1, 'gauge', $2)
 		 ON CONFLICT (id, type)
@@ -126,8 +174,9 @@ func (ps *PostgresStorage) UpdateGauge(name string, value float64) {
 }
 
 func (ps *PostgresStorage) UpdateCounter(name string, value int64) {
-	_, _ = ps.db.ExecContext(
+	err := execWithRetry(
 		context.Background(),
+		ps.db,
 		`INSERT INTO metrics (id, type, delta)
 		 VALUES ($1, 'counter', $2)
 		 ON CONFLICT (id, type)
@@ -135,6 +184,10 @@ func (ps *PostgresStorage) UpdateCounter(name string, value int64) {
 		name,
 		value,
 	)
+
+	if err != nil {
+		panic(err)
+	}
 }
 
 func (ps *PostgresStorage) SaveToFile(string) error {

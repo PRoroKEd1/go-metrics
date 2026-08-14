@@ -62,23 +62,44 @@ func sendMetrics(addr string, metrics []models.Metrics) {
 
 	url := fmt.Sprintf("http://%s/updates/", addr)
 
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(compressedBody))
-	if err != nil {
-		log.Println("Ошибка создания запроса:", err)
-		return
+	delays := []time.Duration{
+		1 * time.Second,
+		3 * time.Second,
+		5 * time.Second,
 	}
 
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Content-Encoding", "gzip")
+	for attempt := 0; attempt <= len(delays); attempt++ {
 
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		log.Println("Ошибка отправки запроса:", err)
-		return
+		req, err := http.NewRequest(
+			"POST",
+			url,
+			bytes.NewBuffer(compressedBody),
+		)
+
+		if err != nil {
+			log.Println("Ошибка создания запроса:", err)
+			return
+		}
+
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Content-Encoding", "gzip")
+
+		resp, err := http.DefaultClient.Do(req)
+
+		if err == nil {
+			resp.Body.Close()
+			log.Println("Статус ответа:", resp.Status)
+			return
+		}
+
+		log.Println("Ошибка отправки батча:", err)
+
+		if attempt < len(delays) {
+			time.Sleep(delays[attempt])
+		}
 	}
-	defer resp.Body.Close()
 
-	log.Println("Статус ответа:", resp.Status)
+	log.Println("Не удалось отправить батч после повторов")
 }
 
 func Run(addr string, pollInterval int, reportInterval int) {
