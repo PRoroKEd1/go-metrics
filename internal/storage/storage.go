@@ -93,7 +93,7 @@ func (ms *MemStorage) RestoreFromFile(filename string) error {
 			}
 		case "counter":
 			if m.Delta != nil {
-				ms.UpdateCounter(m.ID, *m.Delta)
+				ms.counter[m.ID] = *m.Delta
 			}
 		}
 	}

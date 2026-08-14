@@ -227,3 +227,46 @@ func (h *Handler) ValueJSONHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(req)
 }
+
+func (h *Handler) UpdatesJSONHandler(w http.ResponseWriter, r *http.Request) {
+	var metrics []models.Metrics
+
+	if err := json.NewDecoder(r.Body).Decode(&metrics); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if len(metrics) == 0 {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	for _, metric := range metrics {
+		switch metric.MType {
+		case models.Gauge:
+			if metric.Value == nil {
+				http.Error(w, "Value is required for gauge", http.StatusBadRequest)
+				return
+			}
+
+			h.storage.UpdateGauge(metric.ID, *metric.Value)
+
+		case models.Counter:
+			if metric.Delta == nil {
+				http.Error(w, "Delta is required for counter", http.StatusBadRequest)
+				return
+			}
+
+			h.storage.UpdateCounter(metric.ID, *metric.Delta)
+
+		default:
+			http.Error(w, "Unknown metric type", http.StatusBadRequest)
+			return
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
+	json.NewEncoder(w).Encode(metrics)
+}

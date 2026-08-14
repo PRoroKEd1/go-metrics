@@ -172,6 +172,7 @@ func main() {
 	}
 
 	r.Post("/update/", h.UpdateJSONHandler)
+	r.Post("/updates/", h.UpdatesJSONHandler)
 	r.Post("/value/", h.ValueJSONHandler)
 
 	// Старые эндпоинты
