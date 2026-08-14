@@ -7,6 +7,16 @@ import (
 	models "github.com/PRoroKEd1/go-metrics/internal/model"
 )
 
+type Storage interface {
+	GetGauge(name string) (float64, bool)
+	GetCounter(name string) (int64, bool)
+	GetAllGauges() map[string]float64
+	GetAllCounters() map[string]int64
+	UpdateGauge(name string, value float64)
+	UpdateCounter(name string, value int64)
+	SaveToFile(filename string) error
+}
+
 type MemStorage struct {
 	gauge   map[string]float64
 	counter map[string]int64
@@ -17,6 +27,18 @@ func NewMemStorage() *MemStorage {
 		gauge:   make(map[string]float64),
 		counter: make(map[string]int64),
 	}
+}
+
+func NewFileStorage(filename string, restore bool) (*MemStorage, error) {
+	store := NewMemStorage()
+
+	if restore {
+		if err := store.RestoreFromFile(filename); err != nil {
+			return nil, err
+		}
+	}
+
+	return store, nil
 }
 
 func (ms *MemStorage) SaveToFile(filename string) error {

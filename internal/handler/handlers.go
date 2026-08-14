@@ -12,28 +12,19 @@ import (
 	"time"
 
 	models "github.com/PRoroKEd1/go-metrics/internal/model"
+	"github.com/PRoroKEd1/go-metrics/internal/storage"
 	"github.com/go-chi/chi/v5"
 )
 
-type MetricStorage interface {
-	GetGauge(name string) (float64, bool)
-	GetCounter(name string) (int64, bool)
-	GetAllGauges() map[string]float64
-	GetAllCounters() map[string]int64
-	UpdateGauge(name string, value float64)
-	UpdateCounter(name string, value int64)
-	SaveToFile(filename string) error
-}
-
 type Handler struct {
-	storage  MetricStorage
+	storage  storage.Storage
 	tmpl     *template.Template
 	syncSave bool
 	filePath string
 	db       *sql.DB
 }
 
-func NewHandler(storage MetricStorage, syncSave bool, filePath string, db *sql.DB) *Handler {
+func NewHandler(storage storage.Storage, syncSave bool, filePath string, db *sql.DB) *Handler {
 	tmplText := `
 <!DOCTYPE html>
 <html>
