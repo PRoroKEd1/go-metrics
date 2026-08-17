@@ -8,11 +8,9 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 	"time"
 
-	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/PRoroKEd1/go-metrics/internal/compress"
@@ -21,8 +19,6 @@ import (
 	"github.com/PRoroKEd1/go-metrics/internal/storage"
 	"github.com/caarlos0/env/v11"
 	"github.com/go-chi/chi/v5"
-	"github.com/golang-migrate/migrate/v4"
-	"github.com/golang-migrate/migrate/v4/source/file"
 )
 
 type Config struct {
@@ -72,61 +68,24 @@ func main() {
 	}
 
 	var db *sql.DB
-	var store storage.Storage
+	var store handler.Storage
+	var fileStore *storage.MemStorage
 
 	if cfg.DatabaseDSN != "" {
 		var err error
-		db, err = sql.Open("pgx", cfg.DatabaseDSN)
-		if err != nil {
-			slog.Error("Не удалось открыть соединение с БД", "err", err)
-			os.Exit(1)
-		}
 
-		if err := db.Ping(); err != nil {
+		store, db, err = storage.NewPostgresStorage(cfg.DatabaseDSN)
+		if err != nil {
 			slog.Error("Не удалось подключиться к БД", "err", err)
 			os.Exit(1)
 		}
 
-		migrationPath, err := filepath.Abs("migrations")
-		if err != nil {
-			slog.Error("Не удалось определить путь миграций", "err", err)
-			os.Exit(1)
-		}
-
-		sourceURL := "file://" + filepath.ToSlash(migrationPath)
-
-		sourceDriver, err := (&file.File{}).Open(sourceURL)
-
-		if err != nil {
-			slog.Error("Не удалось открыть миграции", "err", err)
-			os.Exit(1)
-		}
-
-		m, err := migrate.NewWithSourceInstance(
-			"file",
-			sourceDriver,
-			cfg.DatabaseDSN,
-		)
-		if err != nil {
-			slog.Error("Не удалось создать миграции", "err", err)
-			os.Exit(1)
-		}
-
-		if err := m.Up(); err != nil && err != migrate.ErrNoChange {
-			slog.Error("Не удалось выполнить миграции", "err", err)
-			os.Exit(1)
-		}
-
-		slog.Info("Миграции базы данных выполнены")
-		m.Close()
-
 		slog.Info("База данных подключена")
-		store = storage.NewPostgresStorage(db)
 	} else {
 		filePath := cfg.FileStoragePath
 
 		if filePath != "" {
-			fileStore, err := storage.NewFileStorage(filePath, cfg.Restore)
+			fileStore, err = storage.NewFileStorage(filePath, cfg.Restore)
 			if err != nil {
 				slog.Error("Не удалось создать файловое хранилище", "err", err)
 				os.Exit(1)
@@ -164,7 +123,7 @@ func main() {
 			defer ticker.Stop()
 
 			for range ticker.C {
-				if err := store.SaveToFile(cfg.FileStoragePath); err != nil {
+				if err := fileStore.SaveToFile(cfg.FileStoragePath); err != nil {
 					slog.Error("Ошибка сохранения метрик в файл", "err", err)
 				}
 			}
@@ -199,7 +158,7 @@ func main() {
 			slog.Error("Ошибка при остановке сервера", "err", err)
 		}
 		if cfg.DatabaseDSN == "" && cfg.FileStoragePath != "" {
-			if err := store.SaveToFile(cfg.FileStoragePath); err != nil {
+			if err := fileStore.SaveToFile(cfg.FileStoragePath); err != nil {
 				slog.Error("Ошибка финального сохранения метрик", "err", err)
 			} else {
 				slog.Info("Финальное сохранение прошло успешно")

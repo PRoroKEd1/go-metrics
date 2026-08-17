@@ -1,21 +1,13 @@
 package storage
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 
 	models "github.com/PRoroKEd1/go-metrics/internal/model"
 )
-
-type Storage interface {
-	GetGauge(name string) (float64, bool)
-	GetCounter(name string) (int64, bool)
-	GetAllGauges() map[string]float64
-	GetAllCounters() map[string]int64
-	UpdateGauge(name string, value float64)
-	UpdateCounter(name string, value int64)
-	SaveToFile(filename string) error
-}
 
 type MemStorage struct {
 	gauge   map[string]float64
@@ -89,7 +81,7 @@ func (ms *MemStorage) RestoreFromFile(filename string) error {
 		switch m.MType {
 		case "gauge":
 			if m.Value != nil {
-				ms.UpdateGauge(m.ID, *m.Value)
+				ms.UpdateGauge(context.Background(), m.ID, *m.Value)
 			}
 		case "counter":
 			if m.Delta != nil {
@@ -101,28 +93,66 @@ func (ms *MemStorage) RestoreFromFile(filename string) error {
 	return nil
 }
 
-func (m *MemStorage) GetGauge(name string) (float64, bool) {
+func (m *MemStorage) UpdateMetrics(ctx context.Context, metrics []models.Metrics) error {
+	gauges := make(map[string]float64, len(m.gauge))
+	for k, v := range m.gauge {
+		gauges[k] = v
+	}
+
+	counters := make(map[string]int64, len(m.counter))
+	for k, v := range m.counter {
+		counters[k] = v
+	}
+
+	for _, metric := range metrics {
+		switch metric.MType {
+		case models.Gauge:
+			if metric.Value == nil {
+				return fmt.Errorf("value is required for gauge")
+			}
+			gauges[metric.ID] = *metric.Value
+
+		case models.Counter:
+			if metric.Delta == nil {
+				return fmt.Errorf("delta is required for counter")
+			}
+			counters[metric.ID] += *metric.Delta
+
+		default:
+			return fmt.Errorf("unknown metric type")
+		}
+	}
+
+	m.gauge = gauges
+	m.counter = counters
+
+	return nil
+}
+
+func (m *MemStorage) GetGauge(ctx context.Context, name string) (float64, bool) {
 	val, ok := m.gauge[name]
 	return val, ok
 }
 
-func (m *MemStorage) GetCounter(name string) (int64, bool) {
+func (m *MemStorage) GetCounter(ctx context.Context, name string) (int64, bool) {
 	val, ok := m.counter[name]
 	return val, ok
 }
 
-func (m *MemStorage) GetAllGauges() map[string]float64 {
+func (m *MemStorage) GetAllGauges(ctx context.Context) map[string]float64 {
 	return m.gauge
 }
 
-func (m *MemStorage) GetAllCounters() map[string]int64 {
+func (m *MemStorage) GetAllCounters(ctx context.Context) map[string]int64 {
 	return m.counter
 }
 
-func (m *MemStorage) UpdateGauge(name string, value float64) {
+func (m *MemStorage) UpdateGauge(ctx context.Context, name string, value float64) error {
 	m.gauge[name] = value
+	return nil
 }
 
-func (m *MemStorage) UpdateCounter(name string, value int64) {
+func (m *MemStorage) UpdateCounter(ctx context.Context, name string, value int64) error {
 	m.counter[name] += value
+	return nil
 }

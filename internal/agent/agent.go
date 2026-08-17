@@ -43,6 +43,43 @@ func compress(data []byte) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
+type retryTransport struct {
+	base http.RoundTripper
+}
+
+func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	delays := []time.Duration{
+		1 * time.Second,
+		3 * time.Second,
+		5 * time.Second,
+	}
+
+	for attempt := 0; attempt <= len(delays); attempt++ {
+		if attempt > 0 && req.GetBody != nil {
+			body, err := req.GetBody()
+			if err != nil {
+				return nil, err
+			}
+			req.Body = body
+		}
+
+		resp, err := t.base.RoundTrip(req)
+
+		if err == nil {
+			return resp, nil
+		}
+
+		if attempt == len(delays) {
+			return nil, err
+		}
+
+		log.Println("Ошибка HTTP-запроса, повтор:", err)
+		time.Sleep(delays[attempt])
+	}
+
+	return nil, fmt.Errorf("не удалось выполнить HTTP-запрос")
+}
+
 func sendMetrics(addr string, metrics []models.Metrics) {
 	if len(metrics) == 0 {
 		return
@@ -62,44 +99,33 @@ func sendMetrics(addr string, metrics []models.Metrics) {
 
 	url := fmt.Sprintf("http://%s/updates/", addr)
 
-	delays := []time.Duration{
-		1 * time.Second,
-		3 * time.Second,
-		5 * time.Second,
+	req, err := http.NewRequest(
+		"POST",
+		url,
+		bytes.NewReader(compressedBody),
+	)
+	if err != nil {
+		log.Println("Ошибка создания запроса:", err)
+		return
 	}
 
-	for attempt := 0; attempt <= len(delays); attempt++ {
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Encoding", "gzip")
 
-		req, err := http.NewRequest(
-			"POST",
-			url,
-			bytes.NewBuffer(compressedBody),
-		)
+	client := &http.Client{
+		Transport: &retryTransport{
+			base: http.DefaultTransport,
+		},
+	}
 
-		if err != nil {
-			log.Println("Ошибка создания запроса:", err)
-			return
-		}
-
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Content-Encoding", "gzip")
-
-		resp, err := http.DefaultClient.Do(req)
-
-		if err == nil {
-			resp.Body.Close()
-			log.Println("Статус ответа:", resp.Status)
-			return
-		}
-
+	resp, err := client.Do(req)
+	if err != nil {
 		log.Println("Ошибка отправки батча:", err)
-
-		if attempt < len(delays) {
-			time.Sleep(delays[attempt])
-		}
+		return
 	}
+	defer resp.Body.Close()
 
-	log.Println("Не удалось отправить батч после повторов")
+	log.Println("Статус ответа:", resp.Status)
 }
 
 func Run(addr string, pollInterval int, reportInterval int) {

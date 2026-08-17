@@ -12,19 +12,28 @@ import (
 	"time"
 
 	models "github.com/PRoroKEd1/go-metrics/internal/model"
-	"github.com/PRoroKEd1/go-metrics/internal/storage"
 	"github.com/go-chi/chi/v5"
 )
 
+type Storage interface {
+	GetGauge(ctx context.Context, name string) (float64, bool)
+	GetCounter(ctx context.Context, name string) (int64, bool)
+	GetAllGauges(ctx context.Context) map[string]float64
+	GetAllCounters(ctx context.Context) map[string]int64
+	UpdateGauge(ctx context.Context, name string, value float64) error
+	UpdateCounter(ctx context.Context, name string, value int64) error
+	UpdateMetrics(ctx context.Context, metrics []models.Metrics) error
+}
+
 type Handler struct {
-	storage  storage.Storage
+	storage  Storage
 	tmpl     *template.Template
 	syncSave bool
 	filePath string
 	db       *sql.DB
 }
 
-func NewHandler(storage storage.Storage, syncSave bool, filePath string, db *sql.DB) *Handler {
+func NewHandler(storage Storage, syncSave bool, filePath string, db *sql.DB) *Handler {
 	tmplText := `
 <!DOCTYPE html>
 <html>
@@ -80,7 +89,11 @@ func (h *Handler) UpdateMetricHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Invalid gauge value format", http.StatusBadRequest)
 			return
 		}
-		h.storage.UpdateGauge(metricName, value)
+
+		if err := h.storage.UpdateGauge(r.Context(), metricName, value); err != nil {
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
 
 	case "counter":
 		value, err := strconv.ParseInt(metricValueStr, 10, 64)
@@ -88,15 +101,15 @@ func (h *Handler) UpdateMetricHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Invalid counter value format", http.StatusBadRequest)
 			return
 		}
-		h.storage.UpdateCounter(metricName, value)
+
+		if err := h.storage.UpdateCounter(r.Context(), metricName, value); err != nil {
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
 
 	default:
 		http.Error(w, "Invalid metric type", http.StatusBadRequest)
 		return
-	}
-
-	if h.syncSave {
-		h.storage.SaveToFile(h.filePath)
 	}
 
 	w.Header().Set("Content-Type", "text/plain")
@@ -110,7 +123,7 @@ func (h *Handler) GetMetricHandler(w http.ResponseWriter, r *http.Request) {
 
 	switch metricType {
 	case "gauge":
-		val, ok := h.storage.GetGauge(metricName)
+		val, ok := h.storage.GetGauge(r.Context(), metricName)
 		if !ok {
 			http.Error(w, "Metric not found", http.StatusNotFound)
 			return
@@ -119,7 +132,7 @@ func (h *Handler) GetMetricHandler(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(strVal))
 
 	case "counter":
-		val, ok := h.storage.GetCounter(metricName)
+		val, ok := h.storage.GetCounter(r.Context(), metricName)
 		if !ok {
 			http.Error(w, "Metric not found", http.StatusNotFound)
 			return
@@ -134,8 +147,8 @@ func (h *Handler) GetMetricHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetAllMetricsHandler(w http.ResponseWriter, r *http.Request) {
-	gauges := h.storage.GetAllGauges()
-	counters := h.storage.GetAllCounters()
+	gauges := h.storage.GetAllGauges(r.Context())
+	counters := h.storage.GetAllCounters(r.Context())
 
 	data := struct {
 		Gauges   map[string]float64
@@ -168,25 +181,29 @@ func (h *Handler) UpdateJSONHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Value is required for gauge", http.StatusBadRequest)
 			return
 		}
-		h.storage.UpdateGauge(req.ID, *req.Value)
+
+		if err := h.storage.UpdateGauge(r.Context(), req.ID, *req.Value); err != nil {
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
 
 	case "counter":
 		if req.Delta == nil {
 			http.Error(w, "Delta is required for counter", http.StatusBadRequest)
 			return
 		}
-		h.storage.UpdateCounter(req.ID, *req.Delta)
 
-		newVal, _ := h.storage.GetCounter(req.ID)
+		if err := h.storage.UpdateCounter(r.Context(), req.ID, *req.Delta); err != nil {
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		newVal, _ := h.storage.GetCounter(r.Context(), req.ID)
 		req.Delta = &newVal
 
 	default:
 		http.Error(w, "Unknown metric type", http.StatusBadRequest)
 		return
-	}
-
-	if h.syncSave {
-		h.storage.SaveToFile(h.filePath)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -203,7 +220,7 @@ func (h *Handler) ValueJSONHandler(w http.ResponseWriter, r *http.Request) {
 
 	switch req.MType {
 	case "gauge":
-		val, ok := h.storage.GetGauge(req.ID)
+		val, ok := h.storage.GetGauge(r.Context(), req.ID)
 		if !ok {
 			http.Error(w, "Metric not found", http.StatusNotFound)
 			return
@@ -212,7 +229,7 @@ func (h *Handler) ValueJSONHandler(w http.ResponseWriter, r *http.Request) {
 
 	case "counter":
 
-		val, ok := h.storage.GetCounter(req.ID)
+		val, ok := h.storage.GetCounter(r.Context(), req.ID)
 		if !ok {
 			http.Error(w, "Counter not found", http.StatusNotFound)
 			return
@@ -241,28 +258,9 @@ func (h *Handler) UpdatesJSONHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	for _, metric := range metrics {
-		switch metric.MType {
-		case models.Gauge:
-			if metric.Value == nil {
-				http.Error(w, "Value is required for gauge", http.StatusBadRequest)
-				return
-			}
-
-			h.storage.UpdateGauge(metric.ID, *metric.Value)
-
-		case models.Counter:
-			if metric.Delta == nil {
-				http.Error(w, "Delta is required for counter", http.StatusBadRequest)
-				return
-			}
-
-			h.storage.UpdateCounter(metric.ID, *metric.Delta)
-
-		default:
-			http.Error(w, "Unknown metric type", http.StatusBadRequest)
-			return
-		}
+	if err := h.storage.UpdateMetrics(r.Context(), metrics); err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")

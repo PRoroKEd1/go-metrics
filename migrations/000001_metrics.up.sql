@@ -1,7 +1,8 @@
 CREATE TABLE IF NOT EXISTS metrics (
-    id TEXT NOT NULL,
-    type TEXT NOT NULL,
+    id VARCHAR(255) NOT NULL,
+    type VARCHAR(20) NOT NULL,
     delta BIGINT,
     value DOUBLE PRECISION,
-    PRIMARY KEY (id, type)
+    metric_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    UNIQUE (id, type)
 );

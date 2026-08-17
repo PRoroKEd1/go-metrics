@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -62,7 +63,7 @@ func TestUpdatesJSONHandler(t *testing.T) {
 		)
 	}
 
-	gauge, ok := store.GetGauge("TestGauge")
+	gauge, ok := store.GetGauge(context.Background(), "TestGauge")
 	if !ok {
 		t.Fatal("gauge не найден")
 	}
@@ -74,7 +75,7 @@ func TestUpdatesJSONHandler(t *testing.T) {
 		)
 	}
 
-	counter, ok := store.GetCounter("TestCounter")
+	counter, ok := store.GetCounter(context.Background(), "TestCounter")
 	if !ok {
 		t.Fatal("counter не найден")
 	}
@@ -161,6 +162,7 @@ func TestValueJSONHandler(t *testing.T) {
 	store := storage.NewMemStorage()
 
 	store.UpdateGauge(
+		context.Background(),
 		"Temperature",
 		25.5,
 	)

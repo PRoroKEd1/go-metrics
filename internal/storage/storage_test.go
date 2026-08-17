@@ -1,21 +1,25 @@
 package storage
 
 import (
+	"context"
 	"os"
 	"testing"
 )
 
 func TestMemStorage_GetAllGauges(t *testing.T) {
 	store := NewMemStorage()
+	ctx := context.Background()
 
-	gauges := store.GetAllGauges()
+	gauges := store.GetAllGauges(ctx)
 	if len(gauges) != 0 {
 		t.Errorf("Expected empty map, got %d elements", len(gauges))
 	}
 
-	store.UpdateGauge("TestMetric", 123.45)
+	if err := store.UpdateGauge(ctx, "TestMetric", 123.45); err != nil {
+		t.Fatal(err)
+	}
 
-	gauges = store.GetAllGauges()
+	gauges = store.GetAllGauges(ctx)
 	if len(gauges) != 1 {
 		t.Errorf("Expected 1 element, got %d elements", len(gauges))
 	}
@@ -27,11 +31,17 @@ func TestMemStorage_GetAllGauges(t *testing.T) {
 
 func TestMemStorage_Counter(t *testing.T) {
 	store := NewMemStorage()
+	ctx := context.Background()
 
-	store.UpdateCounter("Requests", 10)
-	store.UpdateCounter("Requests", 5)
+	if err := store.UpdateCounter(ctx, "Requests", 10); err != nil {
+		t.Fatal(err)
+	}
 
-	value, ok := store.GetCounter("Requests")
+	if err := store.UpdateCounter(ctx, "Requests", 5); err != nil {
+		t.Fatal(err)
+	}
+
+	value, ok := store.GetCounter(ctx, "Requests")
 
 	if !ok {
 		t.Fatal("counter не найден")
@@ -46,22 +56,28 @@ func TestMemStorage_Counter(t *testing.T) {
 }
 
 func TestFileStorage_SaveRestore(t *testing.T) {
-
 	filename := "test_metrics.json"
 
 	defer os.Remove(filename)
 
 	store := NewMemStorage()
+	ctx := context.Background()
 
-	store.UpdateGauge(
+	if err := store.UpdateGauge(
+		ctx,
 		"CPU",
 		55.5,
-	)
+	); err != nil {
+		t.Fatal(err)
+	}
 
-	store.UpdateCounter(
+	if err := store.UpdateCounter(
+		ctx,
 		"PollCount",
 		100,
-	)
+	); err != nil {
+		t.Fatal(err)
+	}
 
 	err := store.SaveToFile(filename)
 
@@ -77,7 +93,7 @@ func TestFileStorage_SaveRestore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	gauge, ok := newStore.GetGauge("CPU")
+	gauge, ok := newStore.GetGauge(ctx, "CPU")
 
 	if !ok || gauge != 55.5 {
 		t.Fatalf(
@@ -86,7 +102,7 @@ func TestFileStorage_SaveRestore(t *testing.T) {
 		)
 	}
 
-	counter, ok := newStore.GetCounter("PollCount")
+	counter, ok := newStore.GetCounter(ctx, "PollCount")
 
 	if !ok || counter != 100 {
 		t.Fatalf(
