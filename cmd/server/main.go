@@ -11,8 +11,6 @@ import (
 	"syscall"
 	"time"
 
-	_ "github.com/jackc/pgx/v5/stdlib"
-
 	"github.com/PRoroKEd1/go-metrics/internal/compress"
 	"github.com/PRoroKEd1/go-metrics/internal/handler"
 	"github.com/PRoroKEd1/go-metrics/internal/logging"
