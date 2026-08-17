@@ -234,45 +234,68 @@ func (ps *PostgresStorage) UpdateCounter(ctx context.Context, name string, value
 }
 
 func (ps *PostgresStorage) UpdateMetrics(ctx context.Context, metrics []models.Metrics) error {
-	args := make([]any, 0, len(metrics)*2)
-	values := make([]string, 0, len(metrics)*4)
+	type key struct {
+		id    string
+		mtype string
+	}
 
-	for i, metric := range metrics {
+	aggregated := make(map[key]models.Metrics)
+	order := make([]key, 0, len(metrics))
+
+	for _, metric := range metrics {
+		k := key{id: metric.ID, mtype: metric.MType}
+
 		switch metric.MType {
 		case models.Gauge:
 			if metric.Value == nil {
 				return fmt.Errorf("value is required for gauge")
 			}
-
-			idIndex := i*2 + 1
-			valueIndex := i*2 + 2
-
-			values = append(values, fmt.Sprintf(
-				"($%d, 'gauge', NULL, $%d)",
-				idIndex,
-				valueIndex,
-			))
-
-			args = append(args, metric.ID, *metric.Value)
+			if _, exists := aggregated[k]; !exists {
+				order = append(order, k)
+			}
+			aggregated[k] = metric
 
 		case models.Counter:
 			if metric.Delta == nil {
 				return fmt.Errorf("delta is required for counter")
 			}
-
-			idIndex := i*2 + 1
-			deltaIndex := i*2 + 2
-
-			values = append(values, fmt.Sprintf(
-				"($%d, 'counter', $%d, NULL)",
-				idIndex,
-				deltaIndex,
-			))
-
-			args = append(args, metric.ID, *metric.Delta)
+			existing, exists := aggregated[k]
+			if !exists {
+				order = append(order, k)
+				aggregated[k] = metric
+			} else {
+				sum := *existing.Delta + *metric.Delta
+				existing.Delta = &sum
+				aggregated[k] = existing
+			}
 
 		default:
 			return fmt.Errorf("unknown metric type")
+		}
+	}
+
+	args := make([]any, 0, len(order)*2)
+	values := make([]string, 0, len(order))
+
+	for i, k := range order {
+		metric := aggregated[k]
+		idIndex := i*2 + 1
+		valueIndex := i*2 + 2
+
+		switch metric.MType {
+		case models.Gauge:
+			values = append(values, fmt.Sprintf(
+				"($%d, 'gauge', NULL, $%d)",
+				idIndex, valueIndex,
+			))
+			args = append(args, metric.ID, *metric.Value)
+
+		case models.Counter:
+			values = append(values, fmt.Sprintf(
+				"($%d, 'counter', $%d, NULL)",
+				idIndex, valueIndex,
+			))
+			args = append(args, metric.ID, *metric.Delta)
 		}
 	}
 
