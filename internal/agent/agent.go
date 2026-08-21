@@ -43,8 +43,49 @@ func compress(data []byte) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-func sendMetric(addr string, metric models.Metrics) {
-	body, err := json.Marshal(metric)
+type retryTransport struct {
+	base http.RoundTripper
+}
+
+func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	delays := []time.Duration{
+		1 * time.Second,
+		3 * time.Second,
+		5 * time.Second,
+	}
+
+	for attempt := 0; attempt <= len(delays); attempt++ {
+		if attempt > 0 && req.GetBody != nil {
+			body, err := req.GetBody()
+			if err != nil {
+				return nil, err
+			}
+			req.Body = body
+		}
+
+		resp, err := t.base.RoundTrip(req)
+
+		if err == nil {
+			return resp, nil
+		}
+
+		if attempt == len(delays) {
+			return nil, err
+		}
+
+		log.Println("Ошибка HTTP-запроса, повтор:", err)
+		time.Sleep(delays[attempt])
+	}
+
+	return nil, fmt.Errorf("не удалось выполнить HTTP-запрос")
+}
+
+func sendMetrics(addr string, metrics []models.Metrics) {
+	if len(metrics) == 0 {
+		return
+	}
+
+	body, err := json.Marshal(metrics)
 	if err != nil {
 		log.Println("Ошибка сериализации:", err)
 		return
@@ -56,8 +97,13 @@ func sendMetric(addr string, metric models.Metrics) {
 		return
 	}
 
-	url := fmt.Sprintf("http://%s/update/", addr)
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(compressedBody))
+	url := fmt.Sprintf("http://%s/updates/", addr)
+
+	req, err := http.NewRequest(
+		"POST",
+		url,
+		bytes.NewReader(compressedBody),
+	)
 	if err != nil {
 		log.Println("Ошибка создания запроса:", err)
 		return
@@ -66,9 +112,15 @@ func sendMetric(addr string, metric models.Metrics) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Content-Encoding", "gzip")
 
-	resp, err := http.DefaultClient.Do(req)
+	client := &http.Client{
+		Transport: &retryTransport{
+			base: http.DefaultTransport,
+		},
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
-		log.Println("Ошибка отправки запроса:", err)
+		log.Println("Ошибка отправки батча:", err)
 		return
 	}
 	defer resp.Body.Close()
@@ -116,25 +168,29 @@ func Run(addr string, pollInterval int, reportInterval int) {
 		if ticks == int(reportDuration/pollDuration) {
 			ticks = 0
 
+			metrics := make([]models.Metrics, 0, len(store.gaugeMetrics)+len(store.counterMetrics))
+
 			for name, value := range store.gaugeMetrics {
 				v := value
-				metric := models.Metrics{
+
+				metrics = append(metrics, models.Metrics{
 					ID:    name,
 					MType: "gauge",
 					Value: &v,
-				}
-				sendMetric(addr, metric)
+				})
 			}
 
 			for name, delta := range store.counterMetrics {
 				d := delta
-				metric := models.Metrics{
+
+				metrics = append(metrics, models.Metrics{
 					ID:    name,
 					MType: "counter",
 					Delta: &d,
-				}
-				sendMetric(addr, metric)
+				})
 			}
+
+			sendMetrics(addr, metrics)
 			store.counterMetrics["PollCount"] = 0
 		}
 		store.counterMetrics["PollCount"]++
