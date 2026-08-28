@@ -112,6 +112,6 @@ func TestSendMetrics(t *testing.T) {
 	sendMetrics(
 		addr,
 		metrics,
-		key,
+		"",
 	)
 }
