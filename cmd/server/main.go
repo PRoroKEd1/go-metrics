@@ -13,6 +13,7 @@ import (
 
 	"github.com/PRoroKEd1/go-metrics/internal/compress"
 	"github.com/PRoroKEd1/go-metrics/internal/handler"
+	"github.com/PRoroKEd1/go-metrics/internal/hash"
 	"github.com/PRoroKEd1/go-metrics/internal/logging"
 	"github.com/PRoroKEd1/go-metrics/internal/storage"
 	"github.com/caarlos0/env/v11"
@@ -25,6 +26,7 @@ type Config struct {
 	FileStoragePath string `env:"FILE_STORAGE_PATH"`
 	Restore         bool   `env:"RESTORE"`
 	DatabaseDSN     string `env:"DATABASE_DSN"`
+	Key             string `env:"KEY"`
 }
 
 func parseConfig(args []string) (Config, error) {
@@ -36,6 +38,7 @@ func parseConfig(args []string) (Config, error) {
 	f.BoolVar(&cfg.Restore, "r", true, "Восстанавливать ли данные")
 	f.StringVar(&cfg.FileStoragePath, "f", "/tmp/metrics-db.json", "Путь файла")
 	f.StringVar(&cfg.DatabaseDSN, "d", "", "Подключения к ДБ")
+	f.StringVar(&cfg.Key, "k", "", "Ключ для подписи данных")
 
 	if err := f.Parse(args); err != nil {
 		return cfg, err
@@ -102,7 +105,7 @@ func main() {
 	r := chi.NewRouter()
 
 	r.Use(logging.RequestLogger)
-
+	r.Use(hash.HashMiddleware(cfg.Key))
 	r.Use(compress.GzipMiddleware)
 
 	if cfg.Restore && cfg.DatabaseDSN == "" {

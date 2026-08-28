@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/PRoroKEd1/go-metrics/internal/hash"
 	models "github.com/PRoroKEd1/go-metrics/internal/model"
 )
 
@@ -80,7 +81,7 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return nil, fmt.Errorf("не удалось выполнить HTTP-запрос")
 }
 
-func sendMetrics(addr string, metrics []models.Metrics) {
+func sendMetrics(addr string, metrics []models.Metrics, key string) {
 	if len(metrics) == 0 {
 		return
 	}
@@ -118,6 +119,11 @@ func sendMetrics(addr string, metrics []models.Metrics) {
 		},
 	}
 
+	if key != "" {
+		hashValue := hash.Sign(compressedBody, key)
+		req.Header.Set("HashSHA256", hashValue)
+	}
+
 	resp, err := client.Do(req)
 	if err != nil {
 		log.Println("Ошибка отправки батча:", err)
@@ -128,7 +134,7 @@ func sendMetrics(addr string, metrics []models.Metrics) {
 	log.Println("Статус ответа:", resp.Status)
 }
 
-func Run(addr string, pollInterval int, reportInterval int) {
+func Run(addr string, pollInterval int, reportInterval int, key string) {
 	store := NewMemStorage()
 	pollDuration := time.Duration(pollInterval) * time.Second
 	reportDuration := time.Duration(reportInterval) * time.Second
@@ -190,7 +196,7 @@ func Run(addr string, pollInterval int, reportInterval int) {
 				})
 			}
 
-			sendMetrics(addr, metrics)
+			sendMetrics(addr, metrics, key)
 			store.counterMetrics["PollCount"] = 0
 		}
 		store.counterMetrics["PollCount"]++
