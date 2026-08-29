@@ -15,6 +15,7 @@ type Config struct {
 	PollInterval   int    `env:"POLL_INTERVAL"`
 	ReportInterval int    `env:"REPORT_INTERVAL"`
 	Key            string `env:"KEY"`
+	RateLimit      int    `env:"RATE_LIMIT"`
 }
 
 func parseConfig(args []string) (Config, error) {
@@ -25,6 +26,7 @@ func parseConfig(args []string) (Config, error) {
 	f.IntVar(&cfg.PollInterval, "p", 2, "частота опроса")
 	f.IntVar(&cfg.ReportInterval, "r", 10, "частота отправки")
 	f.StringVar(&cfg.Key, "k", "", "Ключ для подписи данных")
+	f.IntVar(&cfg.RateLimit, "l", 1, "Количество одновременных запросов")
 
 	if err := f.Parse(args); err != nil {
 		return cfg, err
@@ -50,5 +52,5 @@ func main() {
 	}
 
 	slog.Info("Агент запущен...", "addr", cfg.Addr)
-	agent.Run(cfg.Addr, cfg.PollInterval, cfg.ReportInterval, cfg.Key)
+	agent.Run(cfg.Addr, cfg.PollInterval, cfg.ReportInterval, cfg.Key, cfg.RateLimit)
 }

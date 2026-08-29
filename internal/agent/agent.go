@@ -9,13 +9,18 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"runtime"
+	"sync"
 	"time"
+
+	"github.com/shirou/gopsutil/v3/cpu"
+	"github.com/shirou/gopsutil/v3/mem"
 
 	"github.com/PRoroKEd1/go-metrics/internal/hash"
 	models "github.com/PRoroKEd1/go-metrics/internal/model"
 )
 
 type MemStorage struct {
+	mu             sync.RWMutex
 	gaugeMetrics   map[string]float64
 	counterMetrics map[string]int64
 }
@@ -46,6 +51,78 @@ func compress(data []byte) ([]byte, error) {
 
 type retryTransport struct {
 	base http.RoundTripper
+}
+
+func worker(id int, jobs <-chan []models.Metrics, addr, key string) {
+	for metrics := range jobs {
+		log.Printf("Воркер %d начал отправку %d метрик\n", id, len(metrics))
+		sendMetrics(addr, metrics, key)
+	}
+}
+
+func (ms *MemStorage) SetGauge(name string, value float64) {
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+	ms.gaugeMetrics[name] = value
+}
+
+func (ms *MemStorage) IncrementCounter(name string, value int64) {
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+	ms.counterMetrics[name] += value
+}
+
+func (ms *MemStorage) ResetCounter(name string) {
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+	ms.counterMetrics[name] = 0
+}
+
+func (ms *MemStorage) GetMetricsSnapshot() []models.Metrics {
+	ms.mu.RLock() // RLock - блокировка только для чтения
+	defer ms.mu.RUnlock()
+
+	metrics := make([]models.Metrics, 0, len(ms.gaugeMetrics)+len(ms.counterMetrics))
+
+	for name, value := range ms.gaugeMetrics {
+		v := value
+		metrics = append(metrics, models.Metrics{
+			ID:    name,
+			MType: "gauge",
+			Value: &v,
+		})
+	}
+
+	for name, delta := range ms.counterMetrics {
+		d := delta
+		metrics = append(metrics, models.Metrics{
+			ID:    name,
+			MType: "counter",
+			Delta: &d,
+		})
+	}
+	return metrics
+}
+
+func collectExtraMetrics(store *MemStorage, pollInterval time.Duration) {
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		v, err := mem.VirtualMemory()
+		if err == nil {
+			store.SetGauge("TotalMemory", float64(v.Total))
+			store.SetGauge("FreeMemory", float64(v.Free))
+		}
+
+		c, err := cpu.Percent(0, true)
+		if err == nil {
+			for i, percent := range c {
+				metricName := fmt.Sprintf("CPUutilization%d", i+1)
+				store.SetGauge(metricName, percent)
+			}
+		}
+	}
 }
 
 func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -134,74 +211,66 @@ func sendMetrics(addr string, metrics []models.Metrics, key string) {
 	log.Println("Статус ответа:", resp.Status)
 }
 
-func Run(addr string, pollInterval int, reportInterval int, key string) {
+func collectRuntimeMetrics(store *MemStorage, pollInterval time.Duration) {
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+	var memStats runtime.MemStats
+
+	for range ticker.C {
+		runtime.ReadMemStats(&memStats)
+
+		store.SetGauge("Alloc", float64(memStats.Alloc))
+		store.SetGauge("BuckHashSys", float64(memStats.BuckHashSys))
+		store.SetGauge("Frees", float64(memStats.Frees))
+		store.SetGauge("GCCPUFraction", float64(memStats.GCCPUFraction))
+		store.SetGauge("GCSys", float64(memStats.GCSys))
+		store.SetGauge("HeapAlloc", float64(memStats.HeapAlloc))
+		store.SetGauge("HeapIdle", float64(memStats.HeapIdle))
+		store.SetGauge("HeapInuse", float64(memStats.HeapInuse))
+		store.SetGauge("HeapObjects", float64(memStats.HeapObjects))
+		store.SetGauge("HeapReleased", float64(memStats.HeapReleased))
+		store.SetGauge("HeapSys", float64(memStats.HeapSys))
+		store.SetGauge("LastGC", float64(memStats.LastGC))
+		store.SetGauge("Lookups", float64(memStats.Lookups))
+		store.SetGauge("MCacheInuse", float64(memStats.MCacheInuse))
+		store.SetGauge("MCacheSys", float64(memStats.MCacheSys))
+		store.SetGauge("MSpanInuse", float64(memStats.MSpanInuse))
+		store.SetGauge("MSpanSys", float64(memStats.MSpanSys))
+		store.SetGauge("Mallocs", float64(memStats.Mallocs))
+		store.SetGauge("NextGC", float64(memStats.NextGC))
+		store.SetGauge("NumForcedGC", float64(memStats.NumForcedGC))
+		store.SetGauge("NumGC", float64(memStats.NumGC))
+		store.SetGauge("OtherSys", float64(memStats.OtherSys))
+		store.SetGauge("PauseTotalNs", float64(memStats.PauseTotalNs))
+		store.SetGauge("StackInuse", float64(memStats.StackInuse))
+		store.SetGauge("StackSys", float64(memStats.StackSys))
+		store.SetGauge("Sys", float64(memStats.Sys))
+		store.SetGauge("TotalAlloc", float64(memStats.TotalAlloc))
+
+		store.SetGauge("RandomValue", rand.Float64())
+		store.IncrementCounter("PollCount", 1)
+	}
+}
+
+func Run(addr string, pollInterval int, reportInterval int, key string, rateLimit int) {
 	store := NewMemStorage()
 	pollDuration := time.Duration(pollInterval) * time.Second
 	reportDuration := time.Duration(reportInterval) * time.Second
-	var memStats runtime.MemStats
-	ticks := 0
-	for {
-		ticks++
-		runtime.ReadMemStats(&memStats)
-		store.gaugeMetrics["Alloc"] = float64(memStats.Alloc)
-		store.gaugeMetrics["BuckHashSys"] = float64(memStats.BuckHashSys)
-		store.gaugeMetrics["Frees"] = float64(memStats.Frees)
-		store.gaugeMetrics["GCCPUFraction"] = float64(memStats.GCCPUFraction)
-		store.gaugeMetrics["GCSys"] = float64(memStats.GCSys)
-		store.gaugeMetrics["HeapAlloc"] = float64(memStats.HeapAlloc)
-		store.gaugeMetrics["HeapIdle"] = float64(memStats.HeapIdle)
-		store.gaugeMetrics["HeapInuse"] = float64(memStats.HeapInuse)
-		store.gaugeMetrics["HeapObjects"] = float64(memStats.HeapObjects)
-		store.gaugeMetrics["HeapReleased"] = float64(memStats.HeapReleased)
-		store.gaugeMetrics["HeapSys"] = float64(memStats.HeapSys)
-		store.gaugeMetrics["LastGC"] = float64(memStats.LastGC)
-		store.gaugeMetrics["Lookups"] = float64(memStats.Lookups)
-		store.gaugeMetrics["MCacheInuse"] = float64(memStats.MCacheInuse)
-		store.gaugeMetrics["MCacheSys"] = float64(memStats.MCacheSys)
-		store.gaugeMetrics["MSpanInuse"] = float64(memStats.MSpanInuse)
-		store.gaugeMetrics["MSpanSys"] = float64(memStats.MSpanSys)
-		store.gaugeMetrics["Mallocs"] = float64(memStats.Mallocs)
-		store.gaugeMetrics["NextGC"] = float64(memStats.NextGC)
-		store.gaugeMetrics["NumForcedGC"] = float64(memStats.NumForcedGC)
-		store.gaugeMetrics["NumGC"] = float64(memStats.NumGC)
-		store.gaugeMetrics["OtherSys"] = float64(memStats.OtherSys)
-		store.gaugeMetrics["PauseTotalNs"] = float64(memStats.PauseTotalNs)
-		store.gaugeMetrics["StackInuse"] = float64(memStats.StackInuse)
-		store.gaugeMetrics["StackSys"] = float64(memStats.StackSys)
-		store.gaugeMetrics["Sys"] = float64(memStats.Sys)
-		store.gaugeMetrics["TotalAlloc"] = float64(memStats.TotalAlloc)
+	go collectRuntimeMetrics(store, pollDuration)
+	go collectExtraMetrics(store, pollDuration)
 
-		if ticks == int(reportDuration/pollDuration) {
-			ticks = 0
+	jobs := make(chan []models.Metrics, rateLimit)
 
-			metrics := make([]models.Metrics, 0, len(store.gaugeMetrics)+len(store.counterMetrics))
+	for i := 1; i <= rateLimit; i++ {
+		go worker(i, jobs, addr, key)
+	}
 
-			for name, value := range store.gaugeMetrics {
-				v := value
+	ticker := time.NewTicker(reportDuration)
+	defer ticker.Stop()
 
-				metrics = append(metrics, models.Metrics{
-					ID:    name,
-					MType: "gauge",
-					Value: &v,
-				})
-			}
-
-			for name, delta := range store.counterMetrics {
-				d := delta
-
-				metrics = append(metrics, models.Metrics{
-					ID:    name,
-					MType: "counter",
-					Delta: &d,
-				})
-			}
-
-			sendMetrics(addr, metrics, key)
-			store.counterMetrics["PollCount"] = 0
-		}
-		store.counterMetrics["PollCount"]++
-		store.gaugeMetrics["RandomValue"] = rand.Float64()
-		time.Sleep(pollDuration)
-
+	for range ticker.C {
+		snapshot := store.GetMetricsSnapshot()
+		store.ResetCounter("PollCount")
+		jobs <- snapshot
 	}
 }

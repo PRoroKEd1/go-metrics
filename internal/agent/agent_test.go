@@ -14,29 +14,43 @@ import (
 func TestNewMemStorage(t *testing.T) {
 	storage := NewMemStorage()
 
-	if storage.gaugeMetrics == nil {
-		t.Errorf("Ошибка: мапа gaugeMetrics не инициализирована (равна nil)")
-	}
-
-	if storage.counterMetrics == nil {
-		t.Errorf("Ошибка: мапа counterMetrics не инициализирована (равна nil)")
+	snapshot := storage.GetMetricsSnapshot()
+	if snapshot == nil {
+		t.Errorf("Ошибка: GetMetricsSnapshot вернул nil, хранилище не инициализировано корректно")
 	}
 }
 
 func TestAgentMetrics(t *testing.T) {
 	storage := NewMemStorage()
+	storage.SetGauge("RandomValue", 0.123)
+	storage.IncrementCounter("PollCount", 1)
+	storage.IncrementCounter("PollCount", 1)
 
-	storage.gaugeMetrics["RandomValue"] = 0.123
-	storage.counterMetrics["PollCount"]++
+	snapshot := storage.GetMetricsSnapshot()
 
-	storage.counterMetrics["PollCount"]++
+	var foundGauge bool
+	var foundCounter bool
 
-	if val, ok := storage.gaugeMetrics["RandomValue"]; !ok || val != 0.123 {
-		t.Errorf("Ожидалось значение RandomValue 0.123, получено %v", val)
+	for _, m := range snapshot {
+		if m.ID == "RandomValue" && m.MType == "gauge" {
+			foundGauge = true
+			if m.Value == nil || *m.Value != 0.123 {
+				t.Errorf("Ожидалось значение RandomValue 0.123, получено %v", *m.Value)
+			}
+		}
+		if m.ID == "PollCount" && m.MType == "counter" {
+			foundCounter = true
+			if m.Delta == nil || *m.Delta != 2 {
+				t.Errorf("Ожидалось значение PollCount 2, получено %v", *m.Delta)
+			}
+		}
 	}
 
-	if val, ok := storage.counterMetrics["PollCount"]; !ok || val != 2 {
-		t.Errorf("Ожидалось значение PollCount 2, получено %v", val)
+	if !foundGauge {
+		t.Errorf("Метрика RandomValue не найдена в снапшоте")
+	}
+	if !foundCounter {
+		t.Errorf("Метрика PollCount не найдена в снапшоте")
 	}
 }
 
