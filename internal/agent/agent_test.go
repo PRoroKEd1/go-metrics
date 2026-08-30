@@ -14,7 +14,7 @@ import (
 func TestNewMemStorage(t *testing.T) {
 	storage := NewMemStorage()
 
-	snapshot := storage.GetMetricsSnapshot()
+	snapshot := storage.GetMetricsSnapshotAndReset()
 	if snapshot == nil {
 		t.Errorf("Ошибка: GetMetricsSnapshot вернул nil, хранилище не инициализировано корректно")
 	}
@@ -26,7 +26,7 @@ func TestAgentMetrics(t *testing.T) {
 	storage.IncrementCounter("PollCount", 1)
 	storage.IncrementCounter("PollCount", 1)
 
-	snapshot := storage.GetMetricsSnapshot()
+	snapshot := storage.GetMetricsSnapshotAndReset()
 
 	var foundGauge bool
 	var foundCounter bool

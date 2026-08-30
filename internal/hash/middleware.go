@@ -2,6 +2,7 @@ package hash
 
 import (
 	"bytes"
+	"crypto/hmac"
 	"io"
 	"net/http"
 )
@@ -27,9 +28,14 @@ func HashMiddleware(key string) func(http.Handler) http.Handler {
 				next.ServeHTTP(w, r)
 				return
 			}
+			if r.Body != nil && r.Body != http.NoBody {
+				clientHash := r.Header.Get("HashSHA256")
 
-			clientHash := r.Header.Get("HashSHA256")
-			if clientHash != "" && r.Body != nil {
+				if clientHash == "" {
+					http.Error(w, "Missing HashSHA256 header", http.StatusBadRequest)
+					return
+				}
+
 				bodyBytes, err := io.ReadAll(r.Body)
 				if err != nil {
 					http.Error(w, "Failed to read body", http.StatusInternalServerError)
@@ -37,10 +43,12 @@ func HashMiddleware(key string) func(http.Handler) http.Handler {
 				}
 
 				expectedHash := Sign(bodyBytes, key)
-				if clientHash != expectedHash {
+
+				if !hmac.Equal([]byte(clientHash), []byte(expectedHash)) {
 					http.Error(w, "Invalid HashSHA256", http.StatusBadRequest)
 					return
 				}
+
 				r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 			}
 
@@ -54,8 +62,8 @@ func HashMiddleware(key string) func(http.Handler) http.Handler {
 
 			responseBytes := hw.buf.Bytes()
 			responseHash := Sign(responseBytes, key)
-
 			w.Header().Set("HashSHA256", responseHash)
+
 			w.WriteHeader(hw.statusCode)
 			w.Write(responseBytes)
 		})

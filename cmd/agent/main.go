@@ -51,6 +51,14 @@ func main() {
 		os.Exit(1)
 	}
 
+	agentCfg := agent.Config{
+		Addr:           cfg.Addr,
+		PollInterval:   cfg.PollInterval,
+		ReportInterval: cfg.ReportInterval,
+		Key:            cfg.Key,
+		RateLimit:      cfg.RateLimit,
+	}
+
 	slog.Info("Агент запущен...", "addr", cfg.Addr)
-	agent.Run(cfg.Addr, cfg.PollInterval, cfg.ReportInterval, cfg.Key, cfg.RateLimit)
+	agent.Run(agentCfg)
 }
