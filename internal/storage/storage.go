@@ -33,10 +33,10 @@ func NewFileStorage(filename string, restore bool) (*MemStorage, error) {
 	return store, nil
 }
 
-func (ms *MemStorage) SaveToFile(filename string) error {
+func (m *MemStorage) SaveToFile(filename string) error {
 	var metrics []models.Metrics
 
-	for name, value := range ms.gauge {
+	for name, value := range m.gauge {
 		v := value
 		metrics = append(metrics, models.Metrics{
 			ID:    name,
@@ -45,7 +45,7 @@ func (ms *MemStorage) SaveToFile(filename string) error {
 		})
 	}
 
-	for name, delta := range ms.counter {
+	for name, delta := range m.counter {
 		d := delta
 		metrics = append(metrics, models.Metrics{
 			ID:    name,
@@ -62,7 +62,7 @@ func (ms *MemStorage) SaveToFile(filename string) error {
 	return os.WriteFile(filename, data, 0666)
 }
 
-func (ms *MemStorage) RestoreFromFile(filename string) error {
+func (m *MemStorage) RestoreFromFile(filename string) error {
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -77,15 +77,15 @@ func (ms *MemStorage) RestoreFromFile(filename string) error {
 		return err
 	}
 
-	for _, m := range metrics {
-		switch m.MType {
+	for _, metric := range metrics {
+		switch metric.MType {
 		case "gauge":
-			if m.Value != nil {
-				ms.UpdateGauge(context.Background(), m.ID, *m.Value)
+			if metric.Value != nil {
+				m.UpdateGauge(context.Background(), metric.ID, *metric.Value)
 			}
 		case "counter":
-			if m.Delta != nil {
-				ms.counter[m.ID] = *m.Delta
+			if metric.Delta != nil {
+				m.counter[metric.ID] = *metric.Delta
 			}
 		}
 	}
