@@ -187,7 +187,7 @@ func TestJSONAndExtraHandlers(t *testing.T) {
 	store := storage.NewMemStorage()
 	h := NewHandler(store, false, "", nil, nil)
 
-	// 1. Тест UpdateJSONHandler (все ветки: успех и ошибки валидации)
+	// 1. Тест UpdateJSONHandler
 	for _, body := range []string{
 		`{"id":"Alloc","type":"gauge","value":123.45}`,
 		`{"id":"PollCount","type":"counter","delta":10}`,
@@ -201,7 +201,7 @@ func TestJSONAndExtraHandlers(t *testing.T) {
 		h.UpdateJSONHandler(rec, req)
 	}
 
-	// 2. Тест UpdatesJSONHandler (батч: успех и ошибки)
+	// 2. Тест UpdatesJSONHandler
 	for _, body := range []string{
 		`[{"id":"Alloc","type":"gauge","value":55.5},{"id":"PollCount","type":"counter","delta":5}]`,
 		`[{"id":"BadGauge","type":"gauge"},{"id":"BadCounter","type":"counter"},{"id":"BadType","type":"unknown"}]`,
@@ -213,7 +213,7 @@ func TestJSONAndExtraHandlers(t *testing.T) {
 		h.UpdatesJSONHandler(recBatch, reqBatch)
 	}
 
-	// 3. Тест ValueJSONHandler (все ветки: найденные, 404 и ошибки)
+	// 3. Тест ValueJSONHandler
 	for _, body := range []string{
 		`{"id":"Alloc","type":"gauge"}`,
 		`{"id":"PollCount","type":"counter"}`,

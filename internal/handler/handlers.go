@@ -16,6 +16,7 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
+// Storage определяет интерфейс хранилища метрик.
 type Storage interface {
 	GetGauge(ctx context.Context, name string) (float64, bool)
 	GetCounter(ctx context.Context, name string) (int64, bool)
@@ -26,6 +27,7 @@ type Storage interface {
 	UpdateMetrics(ctx context.Context, metrics []models.Metrics) error
 }
 
+// Handler обрабатывает HTTP-запросы для работы с метриками.
 type Handler struct {
 	storage  Storage
 	tmpl     *template.Template
@@ -35,6 +37,7 @@ type Handler struct {
 	auditor  *audit.Auditor
 }
 
+// NewHandler создает и инициализирует новый экземпляр Handler.
 func NewHandler(storage Storage, syncSave bool, filePath string, db *sql.DB, auditor *audit.Auditor) *Handler {
 	tmplText := `
 <!DOCTYPE html>
@@ -63,6 +66,7 @@ func NewHandler(storage Storage, syncSave bool, filePath string, db *sql.DB, aud
 	}
 }
 
+// PingDBHandler проверяет соединение с базой данных PostgreSQL.
 func (h *Handler) PingDBHandler(w http.ResponseWriter, r *http.Request) {
 
 	if h.db == nil {
@@ -80,6 +84,7 @@ func (h *Handler) PingDBHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+// UpdateMetricHandler обрабатывает обновление метрики через URL-параметры.
 func (h *Handler) UpdateMetricHandler(w http.ResponseWriter, r *http.Request) {
 	metricType := chi.URLParam(r, "type")
 	metricName := chi.URLParam(r, "name")
@@ -123,6 +128,7 @@ func (h *Handler) UpdateMetricHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, "updated")
 }
 
+// GetMetricHandler возвращает текущее значение метрики в текстовом формате.
 func (h *Handler) GetMetricHandler(w http.ResponseWriter, r *http.Request) {
 	metricType := chi.URLParam(r, "type")
 	metricName := chi.URLParam(r, "name")
@@ -152,6 +158,7 @@ func (h *Handler) GetMetricHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// GetAllMetricsHandler возвращает HTML-страницу со списком всех метрик.
 func (h *Handler) GetAllMetricsHandler(w http.ResponseWriter, r *http.Request) {
 	gauges := h.storage.GetAllGauges(r.Context())
 	counters := h.storage.GetAllCounters(r.Context())
@@ -173,6 +180,7 @@ func (h *Handler) GetAllMetricsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(buf.Bytes())
 }
 
+// UpdateJSONHandler обрабатывает обновление одной метрики в формате JSON.
 func (h *Handler) UpdateJSONHandler(w http.ResponseWriter, r *http.Request) {
 	var req models.Metrics
 
@@ -220,6 +228,7 @@ func (h *Handler) UpdateJSONHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(req)
 }
 
+// ValueJSONHandler возвращает значение запрошенной метрики в формате JSON.
 func (h *Handler) ValueJSONHandler(w http.ResponseWriter, r *http.Request) {
 	var req models.Metrics
 
@@ -255,6 +264,7 @@ func (h *Handler) ValueJSONHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(req)
 }
 
+// UpdatesJSONHandler обрабатывает пакетное обновление метрик в формате JSON.
 func (h *Handler) UpdatesJSONHandler(w http.ResponseWriter, r *http.Request) {
 	var metrics []models.Metrics
 
