@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -109,5 +110,43 @@ func TestFileStorage_SaveRestore(t *testing.T) {
 			"counter восстановлен неправильно: %d",
 			counter,
 		)
+	}
+}
+
+func BenchmarkMemStorage_Update(b *testing.B) {
+	store := NewMemStorage()
+	ctx := context.Background()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = store.UpdateGauge(ctx, "Alloc", float64(i))
+		_ = store.UpdateCounter(ctx, "PollCount", int64(i))
+	}
+}
+
+func TestMemStorage_SaveAndRestore(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemStorage()
+	_ = store.UpdateGauge(ctx, "Alloc", 42.5)
+	_ = store.UpdateCounter(ctx, "PollCount", 10)
+
+	tmpFile := filepath.Join(t.TempDir(), "metrics.json")
+
+	if err := store.SaveToFile(tmpFile); err != nil {
+		t.Fatalf("ошибка сохранения в файл: %v", err)
+	}
+
+	newStore := NewMemStorage()
+	if err := newStore.RestoreFromFile(tmpFile); err != nil {
+		t.Fatalf("ошибка восстановления из файла: %v", err)
+	}
+
+	val, ok := newStore.GetGauge(ctx, "Alloc")
+	if !ok || val != 42.5 {
+		t.Errorf("ожидался gauge 42.5, получен %v", val)
+	}
+
+	cnt, ok := newStore.GetCounter(ctx, "PollCount")
+	if !ok || cnt != 10 {
+		t.Errorf("ожидался counter 10, получен %v", cnt)
 	}
 }
