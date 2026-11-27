@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/PRoroKEd1/go-metrics/internal/audit"
 	models "github.com/PRoroKEd1/go-metrics/internal/model"
 	"github.com/go-chi/chi/v5"
 )
@@ -31,9 +32,10 @@ type Handler struct {
 	syncSave bool
 	filePath string
 	db       *sql.DB
+	auditor  *audit.Auditor
 }
 
-func NewHandler(storage Storage, syncSave bool, filePath string, db *sql.DB) *Handler {
+func NewHandler(storage Storage, syncSave bool, filePath string, db *sql.DB, auditor *audit.Auditor) *Handler {
 	tmplText := `
 <!DOCTYPE html>
 <html>
@@ -57,6 +59,7 @@ func NewHandler(storage Storage, syncSave bool, filePath string, db *sql.DB) *Ha
 		syncSave: syncSave,
 		filePath: filePath,
 		db:       db,
+		auditor:  auditor,
 	}
 }
 
@@ -110,6 +113,9 @@ func (h *Handler) UpdateMetricHandler(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "Invalid metric type", http.StatusBadRequest)
 		return
+	}
+	if h.auditor != nil {
+		h.auditor.NotifyAll([]string{metricName}, r.RemoteAddr)
 	}
 
 	w.Header().Set("Content-Type", "text/plain")
@@ -206,6 +212,10 @@ func (h *Handler) UpdateJSONHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.auditor != nil {
+		h.auditor.NotifyAll([]string{req.ID}, r.RemoteAddr)
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(req)
 }
@@ -261,6 +271,14 @@ func (h *Handler) UpdatesJSONHandler(w http.ResponseWriter, r *http.Request) {
 	if err := h.storage.UpdateMetrics(r.Context(), metrics); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	if h.auditor != nil {
+		names := make([]string, 0, len(metrics))
+		for _, m := range metrics {
+			names = append(names, m.ID)
+		}
+		h.auditor.NotifyAll(names, r.RemoteAddr)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
