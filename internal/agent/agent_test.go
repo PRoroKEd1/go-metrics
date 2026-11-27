@@ -129,3 +129,24 @@ func TestSendMetrics(t *testing.T) {
 		"",
 	)
 }
+
+func BenchmarkCompress(b *testing.B) {
+	data := []byte(strings.Repeat("metric_payload_data_for_benchmark_", 50))
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = compress(data)
+	}
+}
+
+func BenchmarkGetMetricsSnapshotAndReset(b *testing.B) {
+	storage := NewMemStorage()
+	for i := 0; i < 30; i++ {
+		storage.SetGauge("GaugeMetric", 123.45)
+	}
+	storage.IncrementCounter("PollCount", 10)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = storage.GetMetricsSnapshotAndReset()
+	}
+}

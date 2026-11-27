@@ -5,21 +5,31 @@ import (
 	"compress/gzip"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/PRoroKEd1/go-metrics/internal/hash"
 	models "github.com/PRoroKEd1/go-metrics/internal/model"
 )
 
+// переиспользует тяжелые объекты gzip.Writer, экономя мегабайты памяти
+var gzipWriterPool = sync.Pool{
+	New: func() any {
+		w, _ := gzip.NewWriterLevel(io.Discard, gzip.BestSpeed)
+		return w
+	},
+}
+
 func compress(data []byte) ([]byte, error) {
 	var b bytes.Buffer
-	w, err := gzip.NewWriterLevel(&b, gzip.BestSpeed)
-	if err != nil {
-		return nil, fmt.Errorf("ошибка инициализации сжатия: %v", err)
-	}
-	_, err = w.Write(data)
+	w := gzipWriterPool.Get().(*gzip.Writer)
+	w.Reset(&b)
+	defer gzipWriterPool.Put(w)
+
+	_, err := w.Write(data)
 	if err != nil {
 		return nil, fmt.Errorf("ошибка записи данных для сжатия: %v", err)
 	}
