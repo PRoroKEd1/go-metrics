@@ -9,6 +9,7 @@
 
 Результат сравнения профилей (`go tool pprof -top -diff_base=profiles/base.pprof profiles/result.pprof`):
 
+```text
 File: agent.test.exe
 Type: alloc_space
 Showing nodes accounting for -11.11GB, 99.38% of 11.18GB total
@@ -25,3 +26,4 @@ Dropped 71 nodes (cum <= 0.06GB)
          0     0% 99.38%   -11.10GB 99.26%  github.com/PRoroKEd1/go-metrics/internal/agent.BenchmarkCompress
          0     0% 99.38%   -11.10GB 99.25%  testing.(*B).launch
          0     0% 99.38%   -11.10GB 99.27%  testing.(*B).runN
+```
