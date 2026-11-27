@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	models "github.com/PRoroKEd1/go-metrics/internal/model"
@@ -15,12 +16,7 @@ import (
 func TestUpdatesJSONHandler(t *testing.T) {
 	store := storage.NewMemStorage()
 
-	h := NewHandler(
-		store,
-		false,
-		"",
-		nil,
-	)
+	h := NewHandler(store, false, "", nil, nil)
 
 	metrics := []models.Metrics{
 		{
@@ -92,12 +88,7 @@ func TestUpdatesJSONHandlerEmpty(t *testing.T) {
 
 	store := storage.NewMemStorage()
 
-	h := NewHandler(
-		store,
-		false,
-		"",
-		nil,
-	)
+	h := NewHandler(store, false, "", nil, nil)
 
 	req := httptest.NewRequest(
 		http.MethodPost,
@@ -122,12 +113,7 @@ func TestUpdateJSONHandler_InvalidType(t *testing.T) {
 
 	store := storage.NewMemStorage()
 
-	h := NewHandler(
-		store,
-		false,
-		"",
-		nil,
-	)
+	h := NewHandler(store, false, "", nil, nil)
 
 	body := []byte(`
 {
@@ -167,12 +153,7 @@ func TestValueJSONHandler(t *testing.T) {
 		25.5,
 	)
 
-	h := NewHandler(
-		store,
-		false,
-		"",
-		nil,
-	)
+	h := NewHandler(store, false, "", nil, nil)
 
 	body := []byte(`
 {
@@ -200,4 +181,58 @@ func TestValueJSONHandler(t *testing.T) {
 			rec.Code,
 		)
 	}
+}
+
+func TestJSONAndExtraHandlers(t *testing.T) {
+	store := storage.NewMemStorage()
+	h := NewHandler(store, false, "", nil, nil)
+
+	// 1. Тест UpdateJSONHandler
+	for _, body := range []string{
+		`{"id":"Alloc","type":"gauge","value":123.45}`,
+		`{"id":"PollCount","type":"counter","delta":10}`,
+		`{"id":"Alloc","type":"gauge"}`,
+		`{"id":"PollCount","type":"counter"}`,
+		`{"id":"Unknown","type":"unknown"}`,
+		`invalid_json`,
+	} {
+		req := httptest.NewRequest(http.MethodPost, "/update/", strings.NewReader(body))
+		rec := httptest.NewRecorder()
+		h.UpdateJSONHandler(rec, req)
+	}
+
+	// 2. Тест UpdatesJSONHandler
+	for _, body := range []string{
+		`[{"id":"Alloc","type":"gauge","value":55.5},{"id":"PollCount","type":"counter","delta":5}]`,
+		`[{"id":"BadGauge","type":"gauge"},{"id":"BadCounter","type":"counter"},{"id":"BadType","type":"unknown"}]`,
+		`[]`,
+		`invalid_json`,
+	} {
+		reqBatch := httptest.NewRequest(http.MethodPost, "/updates/", strings.NewReader(body))
+		recBatch := httptest.NewRecorder()
+		h.UpdatesJSONHandler(recBatch, reqBatch)
+	}
+
+	// 3. Тест ValueJSONHandler
+	for _, body := range []string{
+		`{"id":"Alloc","type":"gauge"}`,
+		`{"id":"PollCount","type":"counter"}`,
+		`{"id":"MissingGauge","type":"gauge"}`,
+		`{"id":"MissingCounter","type":"counter"}`,
+		`{"id":"UnknownType","type":"unknown"}`,
+		`invalid_json`,
+	} {
+		req := httptest.NewRequest(http.MethodPost, "/value/", strings.NewReader(body))
+		rec := httptest.NewRecorder()
+		h.ValueJSONHandler(rec, req)
+	}
+
+	// 4. Тест HTML-страницы и PingDBHandler
+	reqAll := httptest.NewRequest(http.MethodGet, "/", nil)
+	recAll := httptest.NewRecorder()
+	h.GetAllMetricsHandler(recAll, reqAll)
+
+	reqPing := httptest.NewRequest(http.MethodGet, "/ping", nil)
+	recPing := httptest.NewRecorder()
+	h.PingDBHandler(recPing, reqPing)
 }

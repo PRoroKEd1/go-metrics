@@ -11,10 +11,12 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/PRoroKEd1/go-metrics/internal/audit"
 	models "github.com/PRoroKEd1/go-metrics/internal/model"
 	"github.com/go-chi/chi/v5"
 )
 
+// Storage определяет интерфейс хранилища метрик.
 type Storage interface {
 	GetGauge(ctx context.Context, name string) (float64, bool)
 	GetCounter(ctx context.Context, name string) (int64, bool)
@@ -25,15 +27,18 @@ type Storage interface {
 	UpdateMetrics(ctx context.Context, metrics []models.Metrics) error
 }
 
+// Handler обрабатывает HTTP-запросы для работы с метриками.
 type Handler struct {
 	storage  Storage
 	tmpl     *template.Template
 	syncSave bool
 	filePath string
 	db       *sql.DB
+	auditor  *audit.Auditor
 }
 
-func NewHandler(storage Storage, syncSave bool, filePath string, db *sql.DB) *Handler {
+// NewHandler создает и инициализирует новый экземпляр Handler.
+func NewHandler(storage Storage, syncSave bool, filePath string, db *sql.DB, auditor *audit.Auditor) *Handler {
 	tmplText := `
 <!DOCTYPE html>
 <html>
@@ -57,9 +62,11 @@ func NewHandler(storage Storage, syncSave bool, filePath string, db *sql.DB) *Ha
 		syncSave: syncSave,
 		filePath: filePath,
 		db:       db,
+		auditor:  auditor,
 	}
 }
 
+// PingDBHandler проверяет соединение с базой данных PostgreSQL.
 func (h *Handler) PingDBHandler(w http.ResponseWriter, r *http.Request) {
 
 	if h.db == nil {
@@ -77,6 +84,7 @@ func (h *Handler) PingDBHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+// UpdateMetricHandler обрабатывает обновление метрики через URL-параметры.
 func (h *Handler) UpdateMetricHandler(w http.ResponseWriter, r *http.Request) {
 	metricType := chi.URLParam(r, "type")
 	metricName := chi.URLParam(r, "name")
@@ -111,12 +119,16 @@ func (h *Handler) UpdateMetricHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid metric type", http.StatusBadRequest)
 		return
 	}
+	if h.auditor != nil {
+		h.auditor.NotifyAll([]string{metricName}, r.RemoteAddr)
+	}
 
 	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprint(w, "updated")
 }
 
+// GetMetricHandler возвращает текущее значение метрики в текстовом формате.
 func (h *Handler) GetMetricHandler(w http.ResponseWriter, r *http.Request) {
 	metricType := chi.URLParam(r, "type")
 	metricName := chi.URLParam(r, "name")
@@ -146,6 +158,7 @@ func (h *Handler) GetMetricHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// GetAllMetricsHandler возвращает HTML-страницу со списком всех метрик.
 func (h *Handler) GetAllMetricsHandler(w http.ResponseWriter, r *http.Request) {
 	gauges := h.storage.GetAllGauges(r.Context())
 	counters := h.storage.GetAllCounters(r.Context())
@@ -167,6 +180,7 @@ func (h *Handler) GetAllMetricsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(buf.Bytes())
 }
 
+// UpdateJSONHandler обрабатывает обновление одной метрики в формате JSON.
 func (h *Handler) UpdateJSONHandler(w http.ResponseWriter, r *http.Request) {
 	var req models.Metrics
 
@@ -206,10 +220,15 @@ func (h *Handler) UpdateJSONHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.auditor != nil {
+		h.auditor.NotifyAll([]string{req.ID}, r.RemoteAddr)
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(req)
 }
 
+// ValueJSONHandler возвращает значение запрошенной метрики в формате JSON.
 func (h *Handler) ValueJSONHandler(w http.ResponseWriter, r *http.Request) {
 	var req models.Metrics
 
@@ -245,6 +264,7 @@ func (h *Handler) ValueJSONHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(req)
 }
 
+// UpdatesJSONHandler обрабатывает пакетное обновление метрик в формате JSON.
 func (h *Handler) UpdatesJSONHandler(w http.ResponseWriter, r *http.Request) {
 	var metrics []models.Metrics
 
@@ -261,6 +281,14 @@ func (h *Handler) UpdatesJSONHandler(w http.ResponseWriter, r *http.Request) {
 	if err := h.storage.UpdateMetrics(r.Context(), metrics); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	if h.auditor != nil {
+		names := make([]string, 0, len(metrics))
+		for _, m := range metrics {
+			names = append(names, m.ID)
+		}
+		h.auditor.NotifyAll(names, r.RemoteAddr)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
