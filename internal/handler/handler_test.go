@@ -15,12 +15,7 @@ import (
 func TestUpdatesJSONHandler(t *testing.T) {
 	store := storage.NewMemStorage()
 
-	h := NewHandler(
-		store,
-		false,
-		"",
-		nil,
-	)
+	h := NewHandler(store, false, "", nil, nil)
 
 	metrics := []models.Metrics{
 		{
@@ -92,12 +87,7 @@ func TestUpdatesJSONHandlerEmpty(t *testing.T) {
 
 	store := storage.NewMemStorage()
 
-	h := NewHandler(
-		store,
-		false,
-		"",
-		nil,
-	)
+	h := NewHandler(store, false, "", nil, nil)
 
 	req := httptest.NewRequest(
 		http.MethodPost,
@@ -122,12 +112,7 @@ func TestUpdateJSONHandler_InvalidType(t *testing.T) {
 
 	store := storage.NewMemStorage()
 
-	h := NewHandler(
-		store,
-		false,
-		"",
-		nil,
-	)
+	h := NewHandler(store, false, "", nil, nil)
 
 	body := []byte(`
 {
@@ -167,12 +152,7 @@ func TestValueJSONHandler(t *testing.T) {
 		25.5,
 	)
 
-	h := NewHandler(
-		store,
-		false,
-		"",
-		nil,
-	)
+	h := NewHandler(store, false, "", nil, nil)
 
 	body := []byte(`
 {

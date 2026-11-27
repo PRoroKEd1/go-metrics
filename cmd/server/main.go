@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/PRoroKEd1/go-metrics/internal/audit"
 	"github.com/PRoroKEd1/go-metrics/internal/compress"
 	"github.com/PRoroKEd1/go-metrics/internal/handler"
 	"github.com/PRoroKEd1/go-metrics/internal/hash"
@@ -27,6 +28,8 @@ type Config struct {
 	Restore         bool   `env:"RESTORE"`
 	DatabaseDSN     string `env:"DATABASE_DSN"`
 	Key             string `env:"KEY"`
+	AuditFile       string `env:"AUDIT_FILE"`
+	AuditURL        string `env:"AUDIT_URL"`
 }
 
 func parseConfig(args []string) (Config, error) {
@@ -39,6 +42,8 @@ func parseConfig(args []string) (Config, error) {
 	f.StringVar(&cfg.FileStoragePath, "f", "/tmp/metrics-db.json", "Путь файла")
 	f.StringVar(&cfg.DatabaseDSN, "d", "", "Подключения к ДБ")
 	f.StringVar(&cfg.Key, "k", "", "Ключ для подписи данных")
+	f.StringVar(&cfg.AuditFile, "audit-file", "", "Путь к файлу аудита")
+	f.StringVar(&cfg.AuditURL, "audit-url", "", "URL для отправки аудита")
 
 	if err := f.Parse(args); err != nil {
 		return cfg, err
@@ -100,7 +105,17 @@ func main() {
 		}
 	}
 
-	h := handler.NewHandler(store, cfg.StoreInterval == 0, cfg.FileStoragePath, db)
+	auditor := audit.NewAuditor()
+	if cfg.AuditFile != "" {
+		auditor.Register(audit.NewFileObserver(cfg.AuditFile))
+		slog.Info("Включен аудит в файл", "path", cfg.AuditFile)
+	}
+	if cfg.AuditURL != "" {
+		auditor.Register(audit.NewURLObserver(cfg.AuditURL))
+		slog.Info("Включен аудит по URL", "url", cfg.AuditURL)
+	}
+
+	h := handler.NewHandler(store, cfg.StoreInterval == 0, cfg.FileStoragePath, db, auditor)
 
 	r := chi.NewRouter()
 
