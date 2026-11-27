@@ -187,10 +187,13 @@ func TestJSONAndExtraHandlers(t *testing.T) {
 	store := storage.NewMemStorage()
 	h := NewHandler(store, false, "", nil, nil)
 
-	// 1. Тест UpdateJSONHandler
+	// 1. Тест UpdateJSONHandler (все ветки: успех и ошибки валидации)
 	for _, body := range []string{
 		`{"id":"Alloc","type":"gauge","value":123.45}`,
 		`{"id":"PollCount","type":"counter","delta":10}`,
+		`{"id":"Alloc","type":"gauge"}`,
+		`{"id":"PollCount","type":"counter"}`,
+		`{"id":"Unknown","type":"unknown"}`,
 		`invalid_json`,
 	} {
 		req := httptest.NewRequest(http.MethodPost, "/update/", strings.NewReader(body))
@@ -198,24 +201,33 @@ func TestJSONAndExtraHandlers(t *testing.T) {
 		h.UpdateJSONHandler(rec, req)
 	}
 
-	// 2. Тест UpdatesJSONHandler
-	batchBody := `[{"id":"Alloc","type":"gauge","value":55.5},{"id":"PollCount","type":"counter","delta":5}]`
-	reqBatch := httptest.NewRequest(http.MethodPost, "/updates/", strings.NewReader(batchBody))
-	recBatch := httptest.NewRecorder()
-	h.UpdatesJSONHandler(recBatch, reqBatch)
+	// 2. Тест UpdatesJSONHandler (батч: успех и ошибки)
+	for _, body := range []string{
+		`[{"id":"Alloc","type":"gauge","value":55.5},{"id":"PollCount","type":"counter","delta":5}]`,
+		`[{"id":"BadGauge","type":"gauge"},{"id":"BadCounter","type":"counter"},{"id":"BadType","type":"unknown"}]`,
+		`[]`,
+		`invalid_json`,
+	} {
+		reqBatch := httptest.NewRequest(http.MethodPost, "/updates/", strings.NewReader(body))
+		recBatch := httptest.NewRecorder()
+		h.UpdatesJSONHandler(recBatch, reqBatch)
+	}
 
-	// 3. Тест ValueJSONHandler
+	// 3. Тест ValueJSONHandler (все ветки: найденные, 404 и ошибки)
 	for _, body := range []string{
 		`{"id":"Alloc","type":"gauge"}`,
 		`{"id":"PollCount","type":"counter"}`,
-		`{"id":"Unknown","type":"gauge"}`,
+		`{"id":"MissingGauge","type":"gauge"}`,
+		`{"id":"MissingCounter","type":"counter"}`,
+		`{"id":"UnknownType","type":"unknown"}`,
+		`invalid_json`,
 	} {
 		req := httptest.NewRequest(http.MethodPost, "/value/", strings.NewReader(body))
 		rec := httptest.NewRecorder()
 		h.ValueJSONHandler(rec, req)
 	}
 
-	// 4. Тест GetAllMetricsHandler и PingDBHandler
+	// 4. Тест HTML-страницы и PingDBHandler
 	reqAll := httptest.NewRequest(http.MethodGet, "/", nil)
 	recAll := httptest.NewRecorder()
 	h.GetAllMetricsHandler(recAll, reqAll)
